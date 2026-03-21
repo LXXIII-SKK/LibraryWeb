@@ -1,0 +1,109 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: mini-library-postgres
+    environment:
+      POSTGRES_DB: library
+      POSTGRES_USER: library_app
+      POSTGRES_PASSWORD: library_app_pw
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U library_app -d library"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    container_name: mini-library-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_DB: dev-file
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_SPI_THEME_STATIC_MAX_AGE: -1
+      KC_SPI_THEME_CACHE_THEMES: "false"
+      KC_SPI_THEME_CACHE_TEMPLATES: "false"
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./infra/keycloak/realm-library.json:/opt/keycloak/data/import/realm-library.json:ro
+      - ./infra/keycloak/themes:/opt/keycloak/themes:ro
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.122.1
+    container_name: mini-library-otel
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./infra/otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    container_name: mini-library-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    container_name: mini-library-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mini-library-backend
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/library
+      DB_USERNAME: library_app
+      DB_PASSWORD: library_app_pw
+      KEYCLOAK_ISSUER_URI: http://localhost:8081/realms/library
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/library/protocol/openid-connect/certs
+      APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      APP_ENV: docker
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8080
+        VITE_KEYCLOAK_URL: http://localhost:8081
+        VITE_KEYCLOAK_REALM: library
+        VITE_KEYCLOAK_CLIENT_ID: library-web
+    container_name: mini-library-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

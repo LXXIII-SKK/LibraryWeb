@@ -1,0 +1,16 @@
+package com.example.library.identity;
+
+public enum UserDisciplineReason {
+    OVERDUE_ABUSE,
+    UNPAID_FEES,
+    LOST_ITEMS,
+    DAMAGED_ITEMS,
+    IDENTITY_MISUSE,
+    CONDUCT_VIOLATION,
+    SECURITY_REVIEW,
+    SPAM_OR_SYSTEM_ABUSE,
+    POLICY_VIOLATION,
+    APPEAL_APPROVED,
+    ISSUE_RESOLVED,
+    MANUAL_ADMIN_ACTION
+}

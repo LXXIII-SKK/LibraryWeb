@@ -1,0 +1,71 @@
+body.login-pf {
+  background:
+    radial-gradient(circle at top left, rgba(193, 154, 107, 0.26), transparent 26%),
+    radial-gradient(circle at 80% 15%, rgba(69, 97, 84, 0.24), transparent 22%),
+    linear-gradient(180deg, #f3eee4 0%, #e4d7c5 100%);
+  color: #1f2d2a;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.login-pf-page {
+  padding-top: 5vh;
+}
+
+#kc-header-wrapper {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: 2rem;
+  letter-spacing: 0.04em;
+  color: #5f4728;
+  text-transform: uppercase;
+}
+
+.card-pf {
+  border-radius: 28px;
+  border: 1px solid rgba(43, 56, 52, 0.1);
+  background: rgba(255, 251, 245, 0.93);
+  box-shadow: 0 24px 60px rgba(67, 54, 37, 0.18);
+}
+
+.login-pf-header h1#kc-page-title {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  color: #23352f;
+}
+
+.pf-c-form-control {
+  border-radius: 16px;
+  border-color: rgba(43, 56, 52, 0.16);
+  min-height: 46px;
+}
+
+.pf-c-form-control:focus {
+  border-color: #456154;
+  box-shadow: 0 0 0 3px rgba(69, 97, 84, 0.18);
+}
+
+.pf-c-form-control[aria-invalid="true"] {
+  border-color: #9d302b;
+  background: rgba(255, 244, 242, 0.96);
+}
+
+.library-inline-error {
+  margin-top: 0.45rem;
+  color: #9d302b;
+  font-size: 0.83rem;
+  font-weight: 600;
+  min-height: 1.1rem;
+}
+
+.pf-c-button.pf-m-primary {
+  border-radius: 999px;
+  background: linear-gradient(135deg, #456154, #5f4728);
+  border: none;
+}
+
+.subtitle,
+.instruction {
+  color: #5d625e;
+}
+
+a {
+  color: #5f4728;
+}

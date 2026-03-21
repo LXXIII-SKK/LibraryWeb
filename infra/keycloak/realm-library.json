@@ -1,0 +1,329 @@
+{
+  "realm": "library",
+  "enabled": true,
+  "loginTheme": "library",
+  "registrationAllowed": true,
+  "resetPasswordAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "admin"
+      },
+      {
+        "name": "member"
+      },
+      {
+        "name": "librarian"
+      },
+      {
+        "name": "branch_manager"
+      },
+      {
+        "name": "auditor"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "library-web",
+      "name": "Library Web",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://localhost:5173"
+      ],
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false
+    },
+    {
+      "clientId": "library-cli",
+      "name": "Library CLI",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "fullScopeAllowed": true
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "firstName": "Admin",
+      "lastName": "User",
+      "emailVerified": true,
+      "email": "admin@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "admin"
+      ]
+    },
+    {
+      "username": "reader",
+      "enabled": true,
+      "firstName": "Riley",
+      "lastName": "Reader",
+      "emailVerified": true,
+      "email": "reader@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "reader123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "member"
+      ]
+    },
+    {
+      "username": "alina.reader",
+      "enabled": true,
+      "firstName": "Alina",
+      "lastName": "Reader",
+      "emailVerified": true,
+      "email": "alina.reader@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "reader123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "member"
+      ]
+    },
+    {
+      "username": "hoang.nguyen",
+      "enabled": true,
+      "firstName": "Hoang",
+      "lastName": "Nguyen",
+      "emailVerified": true,
+      "email": "hoang.nguyen@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "reader123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "member"
+      ]
+    },
+    {
+      "username": "maya.tran",
+      "enabled": true,
+      "firstName": "Maya",
+      "lastName": "Tran",
+      "emailVerified": true,
+      "email": "maya.tran@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "reader123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "member"
+      ]
+    },
+    {
+      "username": "branch.librarian",
+      "enabled": true,
+      "firstName": "Branch",
+      "lastName": "Librarian",
+      "emailVerified": true,
+      "email": "branch.librarian@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "librarian123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "librarian"
+      ]
+    },
+    {
+      "username": "branch.manager",
+      "enabled": true,
+      "firstName": "Branch",
+      "lastName": "Manager",
+      "emailVerified": true,
+      "email": "branch.manager@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "manager123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "branch_manager"
+      ]
+    },
+    {
+      "username": "compliance.auditor",
+      "enabled": true,
+      "firstName": "Compliance",
+      "lastName": "Auditor",
+      "emailVerified": true,
+      "email": "compliance.auditor@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "auditor123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "auditor"
+      ]
+    },
+    {
+      "username": "east.librarian",
+      "enabled": true,
+      "firstName": "East",
+      "lastName": "Librarian",
+      "emailVerified": true,
+      "email": "east.librarian@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "librarian123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "librarian"
+      ]
+    },
+    {
+      "username": "east.manager",
+      "enabled": true,
+      "firstName": "East",
+      "lastName": "Manager",
+      "emailVerified": true,
+      "email": "east.manager@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "manager123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "branch_manager"
+      ]
+    },
+    {
+      "username": "hq.librarian",
+      "enabled": true,
+      "firstName": "Headquarters",
+      "lastName": "Librarian",
+      "emailVerified": true,
+      "email": "hq.librarian@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "librarian123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "librarian"
+      ]
+    },
+    {
+      "username": "hq.manager",
+      "enabled": true,
+      "firstName": "Headquarters",
+      "lastName": "Manager",
+      "emailVerified": true,
+      "email": "hq.manager@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "manager123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "branch_manager"
+      ]
+    },
+    {
+      "username": "central.member",
+      "enabled": true,
+      "firstName": "Central",
+      "lastName": "Member",
+      "emailVerified": true,
+      "email": "central.member@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "reader123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "member"
+      ]
+    },
+    {
+      "username": "east.member",
+      "enabled": true,
+      "firstName": "East",
+      "lastName": "Member",
+      "emailVerified": true,
+      "email": "east.member@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "reader123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "member"
+      ]
+    },
+    {
+      "username": "hq.member",
+      "enabled": true,
+      "firstName": "Headquarters",
+      "lastName": "Member",
+      "emailVerified": true,
+      "email": "hq.member@library.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "reader123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "member"
+      ]
+    }
+  ]
+}
