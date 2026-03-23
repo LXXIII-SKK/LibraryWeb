@@ -1,0 +1,14 @@
+1.
+Identity provisioning design.
+2.
+Testcontainers + DB integration tests.
+3.
+Browser smoke tests.
+4.
+Frontend decomposition.
+5.
+Copy-level inventory + transfer model.
+6.
+Desk exception workflows.
+7.
+Backup/restore and secret hardening

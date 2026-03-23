@@ -18,15 +18,31 @@ import org.springframework.web.bind.annotation.RestController;
 class AccessManagementController {
 
     private final AccessManagementService accessManagementService;
+    private final StaffRegistrationService staffRegistrationService;
 
-    AccessManagementController(AccessManagementService accessManagementService) {
+    AccessManagementController(
+            AccessManagementService accessManagementService,
+            StaffRegistrationService staffRegistrationService) {
         this.accessManagementService = accessManagementService;
+        this.staffRegistrationService = staffRegistrationService;
     }
 
     @GetMapping("/options")
     @PreAuthorize("@authorizationService.canReadUsers()")
     AccessOptionsResponse options() {
         return accessManagementService.options();
+    }
+
+    @GetMapping("/staff-registration/options")
+    @PreAuthorize("@authorizationService.canRegisterStaff()")
+    AccessOptionsResponse staffRegistrationOptions() {
+        return staffRegistrationService.options();
+    }
+
+    @PostMapping("/staff-registration")
+    @PreAuthorize("@authorizationService.canRegisterStaff()")
+    UserAccessResponse registerStaff(@Valid @RequestBody StaffRegistrationRequest request) {
+        return staffRegistrationService.register(request);
     }
 
     @GetMapping("/{userId}/options")

@@ -166,6 +166,40 @@ class AuthorizationServiceTests {
     }
 
     @Test
+    void adminCanRegisterStaffAccounts() {
+        AuthorizationService authorizationService = new AuthorizationService(currentUserService);
+        when(currentUserService.getCurrentUser()).thenReturn(new CurrentUser(
+                70L,
+                "admin-1",
+                "admin",
+                "admin@library.local",
+                AppRole.ADMIN,
+                AccountStatus.ACTIVE,
+                MembershipStatus.GOOD_STANDING,
+                null,
+                null));
+
+        assertThat(authorizationService.canRegisterStaff()).isTrue();
+    }
+
+    @Test
+    void branchManagerCannotRegisterStaffAccounts() {
+        AuthorizationService authorizationService = new AuthorizationService(currentUserService);
+        when(currentUserService.getCurrentUser()).thenReturn(new CurrentUser(
+                71L,
+                "manager-1",
+                "branch.manager",
+                "branch.manager@library.local",
+                AppRole.BRANCH_MANAGER,
+                AccountStatus.ACTIVE,
+                MembershipStatus.GOOD_STANDING,
+                3L,
+                3L));
+
+        assertThat(authorizationService.canRegisterStaff()).isFalse();
+    }
+
+    @Test
     void librarianCannotManageMemberAccessDirectly() {
         AuthorizationService authorizationService = new AuthorizationService(currentUserService);
         when(currentUserService.getCurrentUser()).thenReturn(new CurrentUser(

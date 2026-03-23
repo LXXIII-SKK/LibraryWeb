@@ -109,6 +109,16 @@ public class CirculationService {
                 .observe(() -> doRenew(transactionId, currentUser, request));
     }
 
+    @Transactional
+    public BorrowTransactionResponse recordBorrowingException(Long transactionId, BorrowingExceptionRequest request) {
+        CurrentUser currentUser = currentUserService.getCurrentUser();
+        return Observation.createNotStarted("circulation.exception", observationRegistry)
+                .lowCardinalityKeyValue("transaction.id", String.valueOf(transactionId))
+                .lowCardinalityKeyValue("exception.action", request.action().name())
+                .lowCardinalityKeyValue("user.role", currentUser.role().name())
+                .observe(() -> doRecordException(transactionId, currentUser, request));
+    }
+
     public List<BorrowTransactionResponse> listForCurrentUser() {
         CurrentUser currentUser = currentUserService.getCurrentUser();
         return borrowTransactionRepository.findAllByUserIdOrderByBorrowedAtDesc(currentUser.id()).stream()
@@ -156,6 +166,7 @@ public class CirculationService {
                 saved.getUser().getUsername(),
                 book.getId(),
                 book.getTitle(),
+                false,
                 saved.getBorrowedAt()));
 
         return BorrowTransactionResponse.from(saved);
@@ -169,6 +180,10 @@ public class CirculationService {
         authorizationService.assertCanReturnBorrowingForUser(transaction.getUser());
         if (transaction.getStatus() == BorrowStatus.RETURNED) {
             throw new IllegalArgumentException("This book has already been returned");
+        }
+        if (!transaction.getStatus().canReturnToInventory()) {
+            throw new IllegalArgumentException(
+                    "Lost or damaged borrowings must be resolved through an item exception workflow");
         }
 
         if (transaction.getHolding() != null) {
@@ -246,6 +261,7 @@ public class CirculationService {
                 saved.getUser().getUsername(),
                 book.getId(),
                 book.getTitle(),
+                request.reservationId() != null,
                 saved.getBorrowedAt()));
 
         return BorrowTransactionResponse.from(saved);
@@ -256,38 +272,52 @@ public class CirculationService {
                 .orElseThrow(() -> new EntityNotFoundException(
                         "Borrow transaction %d was not found".formatted(transactionId)));
         authorizationService.assertCanRenewBorrowingForUser(transaction.getUser());
-        if (transaction.getStatus() == BorrowStatus.RETURNED) {
-            throw new IllegalArgumentException("Returned borrowings cannot be renewed");
+        if (!transaction.getStatus().isRenewable()) {
+            throw new IllegalArgumentException("Only borrowed items can be renewed");
         }
 
         LibraryPolicy policy = policyService.getCurrentPolicyEntity();
-        boolean override = currentUser.role() == com.example.library.identity.AppRole.ADMIN
+        boolean privilegedActor = currentUser.role() == com.example.library.identity.AppRole.ADMIN
                 || (currentUser.hasPermission(AppPermission.LOAN_OVERRIDE_BRANCH)
                         && currentUser.branchId() != null
                         && currentUser.belongsToBranch(transaction.getUser().getBranchId()));
+        boolean actorOwnsBorrowing = transaction.getUser().getId() != null
+                && transaction.getUser().getId().equals(currentUser.id());
+        boolean reachedRenewalLimit = transaction.getRenewalCount() >= policy.getMaxRenewals();
+        boolean hasBlockingReservations = !policy.isAllowRenewalWithActiveReservations()
+                && reservationRepository.existsByBookIdAndStatusAndUserIdNot(
+                        transaction.getBook().getId(),
+                        ReservationStatus.ACTIVE,
+                        transaction.getUser().getId());
+        boolean customDueDateRequested = request != null && request.dueAt() != null;
+        boolean overrideApplied = !actorOwnsBorrowing || customDueDateRequested || reachedRenewalLimit || hasBlockingReservations;
 
-        if (!override) {
-            if (transaction.getRenewalCount() >= policy.getMaxRenewals()) {
+        if (!privilegedActor) {
+            if (reachedRenewalLimit) {
                 throw new IllegalArgumentException("This borrowing has reached the renewal limit");
             }
-            if (!policy.isAllowRenewalWithActiveReservations()
-                    && reservationRepository.existsByBookIdAndStatusAndUserIdNot(
-                            transaction.getBook().getId(),
-                            ReservationStatus.ACTIVE,
-                            transaction.getUser().getId())) {
+            if (hasBlockingReservations) {
                 throw new IllegalArgumentException("This borrowing cannot be renewed while other reservations are active");
             }
+            if (customDueDateRequested) {
+                throw new IllegalArgumentException("Only staff overrides can set a manual due date");
+            }
+        } else if (overrideApplied && (request == null || request.reason() == null || request.reason().isBlank())) {
+            throw new IllegalArgumentException("Override renewals require a reason");
         }
 
         Instant baseDueAt = transaction.getDueAt().isAfter(Instant.now()) ? transaction.getDueAt() : Instant.now();
-        Instant nextDueAt = override && request != null && request.dueAt() != null
+        Instant nextDueAt = privilegedActor && customDueDateRequested
                 ? request.dueAt()
                 : baseDueAt.plus(policy.getRenewalDays(), ChronoUnit.DAYS);
         if (!nextDueAt.isAfter(Instant.now())) {
             throw new IllegalArgumentException("Renewed due date must be in the future");
         }
 
-        transaction.renewTo(nextDueAt, Instant.now());
+        String renewalReason = overrideApplied && request != null && request.reason() != null
+                ? request.reason().trim()
+                : null;
+        transaction.renewTo(nextDueAt, Instant.now(), overrideApplied, renewalReason);
         applicationEventPublisher.publishEvent(new BorrowingRenewedEvent(
                 currentUser.id(),
                 currentUser.username(),
@@ -295,7 +325,36 @@ public class CirculationService {
                 transaction.getBook().getTitle(),
                 transaction.getUser().getUsername(),
                 transaction.getDueAt(),
+                overrideApplied,
+                renewalReason,
                 transaction.getLastRenewedAt()));
+        return BorrowTransactionResponse.from(transaction);
+    }
+
+    private BorrowTransactionResponse doRecordException(
+            Long transactionId,
+            CurrentUser currentUser,
+            BorrowingExceptionRequest request) {
+        BorrowTransaction transaction = borrowTransactionRepository.findById(transactionId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Borrow transaction %d was not found".formatted(transactionId)));
+        authorizationService.assertCanManageBorrowingExceptionsForUser(transaction.getUser());
+
+        String note = request.note().trim();
+        if (note.isEmpty()) {
+            throw new IllegalArgumentException("Item exception notes cannot be blank");
+        }
+
+        transaction.recordException(request.action().status(), note, Instant.now());
+        applicationEventPublisher.publishEvent(new BorrowingExceptionRecordedEvent(
+                currentUser.id(),
+                currentUser.username(),
+                transaction.getBook().getId(),
+                transaction.getBook().getTitle(),
+                transaction.getUser().getUsername(),
+                transaction.getStatus(),
+                note,
+                transaction.getExceptionRecordedAt()));
         return BorrowTransactionResponse.from(transaction);
     }
 

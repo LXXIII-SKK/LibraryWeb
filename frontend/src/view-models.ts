@@ -3,6 +3,7 @@ import type {
   ActivityLog,
   Book,
   BookHolding,
+  BorrowingExceptionAction,
   Borrowing,
   LibraryBranch,
   LibraryLocation,
@@ -40,6 +41,17 @@ export type AccessFormState = {
   membershipStatus: string;
   branchId: string;
   homeBranchId: string;
+};
+
+export type StaffRegistrationFormState = {
+  username: string;
+  email: string;
+  password: string;
+  role: string;
+  accountStatus: string;
+  branchId: string;
+  homeBranchId: string;
+  requirePasswordChange: boolean;
 };
 
 export type PolicyFormState = {
@@ -117,16 +129,18 @@ export type BorrowingStats = {
 };
 
 export type NavigationBarProps = {
+  visible: boolean;
   signedIn: boolean;
   canAccessOperations: boolean;
   canViewNotifications: boolean;
   unreadNotificationCount: number;
   username: string;
   roleLabel: string;
-  currentPath: "home" | "books" | "account" | "admin" | "book";
+  currentPath: "home" | "books" | "upcoming" | "account" | "admin" | "book";
   notificationsOpen: boolean;
   onNavigateHome: () => void;
   onNavigateBooks: () => void;
+  onNavigateUpcoming: () => void;
   onNavigateAccount: () => void;
   onNavigateAdmin: () => void;
   onToggleNotifications: () => void;
@@ -136,10 +150,6 @@ export type NavigationBarProps = {
 };
 
 export type WelcomePageProps = {
-  signedIn: boolean;
-  canAccessOperations: boolean;
-  username: string;
-  roleLabel: string;
   inventoryStats: InventoryStats;
   myBorrowingStats: BorrowingStats;
   recommendations: DiscoveryBook[];
@@ -147,11 +157,7 @@ export type WelcomePageProps = {
   mostViewed: DiscoveryBook[];
   upcomingBooks: UpcomingBook[];
   onOpenBook: (bookId: number) => void;
-  onNavigateBooks: () => void;
-  onNavigateAccount: () => void;
-  onLogin: () => void;
-  onRegister: () => void;
-  onLogout: () => void;
+  onNavigateUpcoming: () => void;
 };
 
 export type CatalogPanelProps = {
@@ -165,7 +171,6 @@ export type CatalogPanelProps = {
   categories: string[];
   tags: string[];
   books: Book[];
-  upcomingBooks: UpcomingBook[];
   onQueryChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
   onTagChange: (value: string) => void;
@@ -196,13 +201,17 @@ export type AdminConsoleProps = {
   canSendNotifications: boolean;
   canRequestDisciplineReview: boolean;
   canSeeBorrowings: boolean;
+  canStaffCheckout: boolean;
   canForceReturn: boolean;
+  canOverrideBorrowings: boolean;
+  canManageBorrowingExceptions: boolean;
   canReadReservations: boolean;
   canManageReservations: boolean;
   canReadFines: boolean;
   canWaiveFines: boolean;
   canReadUsers: boolean;
   canManageUsers: boolean;
+  canRegisterStaff: boolean;
   canReadPolicies: boolean;
   canManagePolicies: boolean;
   canManageBranches: boolean;
@@ -234,6 +243,8 @@ export type AdminConsoleProps = {
   disciplineHistory: UserDisciplineRecord[];
   accessOptions: AccessOptions | null;
   accessForm: AccessFormState | null;
+  staffRegistrationOptions: AccessOptions | null;
+  staffRegistrationForm: StaffRegistrationFormState | null;
   policy: LibraryPolicy | null;
   policyForm: PolicyFormState | null;
   coverPreviewUrl: string | null;
@@ -266,6 +277,8 @@ export type AdminConsoleProps = {
   onMarkNotificationRead: (notificationId: number) => void;
   onReturn: (transactionId: number) => void;
   onStaffCheckout: (userId: number, bookId: number, holdingId?: number | null, reservationId?: number | null) => void;
+  onOverrideBorrowing: (transactionId: number, dueAt: string | null, reason: string) => void;
+  onRecordBorrowingException: (transactionId: number, action: BorrowingExceptionAction, note: string) => void;
   onPrepareReservation: (reservationId: number, holdingId?: number | null) => void;
   onReadyReservation: (reservationId: number) => void;
   onExpireReservation: (reservationId: number) => void;
@@ -274,6 +287,11 @@ export type AdminConsoleProps = {
   onSelectUser: (userId: number) => void;
   onUpdateAccessField: <K extends keyof AccessFormState>(field: K, value: AccessFormState[K]) => void;
   onSaveAccess: () => void;
+  onUpdateStaffRegistrationField: <K extends keyof StaffRegistrationFormState>(
+    field: K,
+    value: StaffRegistrationFormState[K],
+  ) => void;
+  onRegisterStaff: () => void;
   onApplyUserDiscipline: (
     userId: number,
     action: UserDisciplineActionType,
@@ -315,7 +333,6 @@ export type BooksWorkspacePageProps = {
   categories: string[];
   tags: string[];
   books: Book[];
-  upcomingBooks: UpcomingBook[];
   onQueryChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
   onTagChange: (value: string) => void;
@@ -323,6 +340,12 @@ export type BooksWorkspacePageProps = {
   onReserve: (bookId: number) => void;
   onStartEdit: (book: Book) => void;
   onOpenBook: (bookId: number) => void;
+  onNavigateUpcoming: () => void;
+};
+
+export type UpcomingWorkspacePageProps = {
+  upcomingBooks: UpcomingBook[];
+  onNavigateBooks: () => void;
 };
 
 export type UserHubPageProps = {
@@ -342,6 +365,7 @@ export type UserHubPageProps = {
   stats: BorrowingStats;
   onLogin: () => void;
   onRegister: () => void;
+  onNavigateBooks: () => void;
   onManageAccount: () => void;
   onOpenBook: (bookId: number) => void;
   onReturn: (transactionId: number) => void;

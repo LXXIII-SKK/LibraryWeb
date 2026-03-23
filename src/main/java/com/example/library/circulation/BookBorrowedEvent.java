@@ -9,5 +9,6 @@ public record BookBorrowedEvent(
         String targetUsername,
         Long bookId,
         String bookTitle,
+        boolean fromReadyReservation,
         Instant occurredAt) {
 }

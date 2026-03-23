@@ -19,6 +19,10 @@ public record BorrowTransactionResponse(
         Instant dueAt,
         Instant lastRenewedAt,
         int renewalCount,
+        boolean lastRenewalOverride,
+        String lastRenewalReason,
+        Instant exceptionRecordedAt,
+        String exceptionNote,
         Instant returnedAt,
         BorrowStatus status) {
 
@@ -42,6 +46,10 @@ public record BorrowTransactionResponse(
                 transaction.getDueAt(),
                 transaction.getLastRenewedAt(),
                 transaction.getRenewalCount(),
+                transaction.isLastRenewalOverride(),
+                transaction.getLastRenewalReason(),
+                transaction.getExceptionRecordedAt(),
+                transaction.getExceptionNote(),
                 transaction.getReturnedAt(),
                 transaction.getStatus());
     }

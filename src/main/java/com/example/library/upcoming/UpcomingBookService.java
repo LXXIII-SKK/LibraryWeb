@@ -4,11 +4,13 @@ import java.util.List;
 
 import com.example.library.branch.BranchService;
 import com.example.library.branch.LibraryBranch;
+import com.example.library.common.OperationalActivityEvent;
 import com.example.library.identity.AccessScope;
 import com.example.library.identity.AuthorizationService;
 import com.example.library.identity.CurrentUser;
 import com.example.library.identity.CurrentUserService;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,16 +23,19 @@ public class UpcomingBookService {
     private final BranchService branchService;
     private final CurrentUserService currentUserService;
     private final AuthorizationService authorizationService;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     public UpcomingBookService(
             UpcomingBookRepository upcomingBookRepository,
             BranchService branchService,
             CurrentUserService currentUserService,
-            AuthorizationService authorizationService) {
+            AuthorizationService authorizationService,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.upcomingBookRepository = upcomingBookRepository;
         this.branchService = branchService;
         this.currentUserService = currentUserService;
         this.authorizationService = authorizationService;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     public List<UpcomingBookResponse> listPublic() {
@@ -52,6 +57,7 @@ public class UpcomingBookService {
                 request.expectedAt(),
                 branch,
                 request.tags()));
+        publishUpcomingBookActivity("created upcoming book", null, upcomingBook);
         return UpcomingBookResponse.from(upcomingBook);
     }
 
@@ -60,6 +66,7 @@ public class UpcomingBookService {
         UpcomingBook upcomingBook = upcomingBookRepository.findById(upcomingBookId)
                 .orElseThrow(() -> new EntityNotFoundException(
                         "Upcoming book %d was not found".formatted(upcomingBookId)));
+        String beforeState = describe(upcomingBook);
         if (upcomingBook.getBranch() != null && upcomingBook.getBranch().getId() != null) {
             authorizationService.assertCanManageBranchInventory(upcomingBook.getBranch().getId());
         }
@@ -74,6 +81,7 @@ public class UpcomingBookService {
                 request.expectedAt(),
                 branch,
                 request.tags());
+        publishUpcomingBookActivity("updated upcoming book", beforeState, upcomingBook);
         return UpcomingBookResponse.from(upcomingBook);
     }
 
@@ -87,6 +95,7 @@ public class UpcomingBookService {
         } else if (currentUserService.getCurrentUser().scope() != AccessScope.GLOBAL) {
             throw new AccessDeniedException("Only global staff can remove global upcoming titles");
         }
+        publishUpcomingBookActivity("deleted upcoming book", describe(upcomingBook), upcomingBook);
         upcomingBookRepository.delete(upcomingBook);
     }
 
@@ -102,5 +111,29 @@ public class UpcomingBookService {
             throw new AccessDeniedException("Branch-scoped staff can only manage their own branch");
         }
         return currentUser.branchId();
+    }
+
+    private void publishUpcomingBookActivity(String action, String beforeState, UpcomingBook upcomingBook) {
+        CurrentUser actor = currentUserService.getCurrentUser();
+        String currentState = describe(upcomingBook);
+        String message = beforeState == null
+                ? "%s %s [%s]".formatted(actor.username(), action, currentState)
+                : action.startsWith("deleted")
+                ? "%s %s [%s]".formatted(actor.username(), action, beforeState)
+                : "%s %s from [%s] to [%s]".formatted(actor.username(), action, beforeState, currentState);
+        applicationEventPublisher.publishEvent(new OperationalActivityEvent(
+                actor.id(),
+                "UPCOMING_BOOK_UPDATED",
+                message,
+                java.time.Instant.now()));
+    }
+
+    private String describe(UpcomingBook upcomingBook) {
+        return "title=%s, author=%s, category=%s, expectedAt=%s, branch=%s".formatted(
+                upcomingBook.getTitle(),
+                upcomingBook.getAuthor(),
+                upcomingBook.getCategory(),
+                upcomingBook.getExpectedAt(),
+                upcomingBook.getBranch() != null ? upcomingBook.getBranch().getCode() : "global");
     }
 }

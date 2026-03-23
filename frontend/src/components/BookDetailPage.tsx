@@ -102,6 +102,10 @@ export function BookDetailPage({
             <span>Active loans</span>
             <strong>{pluralize(borrowedCopies, "copy", "copies")}</strong>
           </div>
+          <div className="metric-card">
+            <span>Views logged</span>
+            <strong>{pluralize(book.viewCount, "view", "views")}</strong>
+          </div>
         </div>
       </div>
 

@@ -13,12 +13,13 @@ public record BookResponse(
         String isbn,
         int totalQuantity,
         int availableQuantity,
+        long viewCount,
         List<String> tags,
         String coverImageUrl,
         boolean hasOnlineAccess,
         List<BookHoldingResponse> availability) {
 
-    static BookResponse from(Book book) {
+    static BookResponse from(Book book, long viewCount) {
         return new BookResponse(
                 book.getId(),
                 book.getTitle(),
@@ -27,6 +28,7 @@ public record BookResponse(
                 book.getIsbn(),
                 book.getTotalQuantity(),
                 book.getAvailableQuantity(),
+                viewCount,
                 book.getTags(),
                 book.hasCoverImage() ? "/api/books/%d/cover".formatted(book.getId()) : null,
                 book.getHoldings().stream().anyMatch(holding -> holding.isActive() && holding.hasOnlineAccess()),

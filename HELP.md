@@ -1,6 +1,6 @@
 # Help
 
-Quick reference for running and switching the Mini Library stack.
+Quick reference for running the Mini Library stack and understanding the seeded account model.
 
 ## Main URLs
 
@@ -61,6 +61,8 @@ npm run dev
 
 ## Demo Accounts
 
+Realm users:
+
 - `admin / admin123`
 - `reader / reader123`
 - `alina.reader / reader123`
@@ -77,15 +79,45 @@ npm run dev
 - `hq.member / reader123`
 - `compliance.auditor / auditor123`
 
+Keycloak admin console:
+
+- `admin / admin`
+
+## Account Model Highlights
+
+- Matching local `app_user` rows are seeded by Flyway and now line up with deterministic demo-user Keycloak subject ids.
+- Automatic username relinking is limited to legacy `seed-*` demo identities only.
+- Auto-created member accounts default to `ACTIVE` + `GOOD_STANDING` with no branch assignment.
+- Only `ACTIVE` accounts are treated as active by the application.
+- Only `GOOD_STANDING` members can start new borrowing-style self-service actions.
+- The shipped realm exposes registration, but it does not automatically provision a usable library account for a brand-new signup.
+
+## Main Pages
+
+- `/`
+  - discovery landing page with paged most-borrowed, most-viewed, and upcoming sections
+- `/books`
+  - catalog explorer with 4 books per page
+- `/upcoming`
+  - dedicated upcoming acquisitions workspace
+- `/me`
+  - member/account workspace
+- `/admin`
+  - permission-scoped operations workspace
+
 ## User Control Hierarchy
 
 - `branch.librarian`, `east.librarian`, `hq.librarian`
   - cannot manage users directly
-  - can only work with books/inventory and submit a manager-review request for a member
+  - can work with catalog and inventory
+  - can submit discipline-review requests for same-branch members
 - `branch.manager`, `east.manager`, `hq.manager`
-  - can manage librarians and members in their own branch
+  - can manage members and librarians in their own branch
+  - cannot manage peer branch managers or global-role accounts
 - `admin`
-  - can manage all users across branches and roles
+  - can manage all users globally
+- `compliance.auditor`
+  - can review user data globally in read-only mode
 
 ## Member Status Login Examples
 
@@ -97,10 +129,10 @@ npm run dev
   - second normal member for circulation testing
 - `hoang.nguyen / reader123`
   - `ACTIVE` + `OVERDUE_RESTRICTED`
-  - can log in, but new borrow/reserve actions are blocked
+  - can log in, but new borrow/reserve flows are blocked
 - `maya.tran / reader123`
   - `ACTIVE` + `BORROW_BLOCKED`
-  - can log in, but new borrow/reserve actions are blocked
+  - can log in, but new borrow/reserve flows are blocked
 - `central.member / reader123`
   - `ACTIVE` + `GOOD_STANDING`
   - normal member at `CENTRAL`
@@ -111,10 +143,16 @@ npm run dev
   - `ACTIVE` + `GOOD_STANDING`
   - normal member at `HQ`
 
-Implemented member/account states without seeded demo logins:
+Implemented without seeded demo logins:
 
 - account: `PENDING_VERIFICATION`, `SUSPENDED`, `LOCKED`, `ARCHIVED`
 - membership: `EXPIRED`
+
+Discipline transitions:
+
+- `SUSPEND` -> `SUSPENDED`
+- `BAN` -> `LOCKED`
+- `REINSTATE` -> `ACTIVE`
 
 ## Common Problems
 
@@ -162,4 +200,10 @@ Running containers:
 
 ```bash
 docker ps
+```
+
+Verify frontend, backend, and Keycloak together:
+
+```cmd
+scripts\verify-runtime.cmd
 ```

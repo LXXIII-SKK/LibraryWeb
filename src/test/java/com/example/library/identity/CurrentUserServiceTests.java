@@ -8,7 +8,6 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.Optional;
 
-import com.example.library.branch.BranchService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,9 +23,6 @@ class CurrentUserServiceTests {
 
     @Mock
     private AppUserRepository appUserRepository;
-
-    @Mock
-    private BranchService branchService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -59,7 +55,7 @@ class CurrentUserServiceTests {
                         .build(),
                 List.of("ROLE_ADMIN")));
 
-        CurrentUserService currentUserService = new CurrentUserService(appUserRepository, branchService);
+        CurrentUserService currentUserService = new CurrentUserService(appUserRepository);
         CurrentUser currentUser = currentUserService.getCurrentUser();
 
         assertThat(currentUser.role()).isEqualTo(AppRole.MEMBER);
@@ -81,7 +77,7 @@ class CurrentUserServiceTests {
                         .build(),
                 List.of("SCOPE_openid")));
 
-        CurrentUserService currentUserService = new CurrentUserService(appUserRepository, branchService);
+        CurrentUserService currentUserService = new CurrentUserService(appUserRepository);
 
         assertThatThrownBy(currentUserService::getCurrentUser)
                 .isInstanceOf(AccessDeniedException.class)
@@ -108,7 +104,7 @@ class CurrentUserServiceTests {
                         .build(),
                 List.of("ROLE_MEMBER")));
 
-        CurrentUserService currentUserService = new CurrentUserService(appUserRepository, branchService);
+        CurrentUserService currentUserService = new CurrentUserService(appUserRepository);
         AppUser currentUser = currentUserService.getCurrentUserEntity();
 
         assertThat(currentUser.getUsername()).isEqualTo("alina.reader");
@@ -135,11 +131,40 @@ class CurrentUserServiceTests {
                         .build(),
                 List.of("ROLE_MEMBER")));
 
-        CurrentUserService currentUserService = new CurrentUserService(appUserRepository, branchService);
+        CurrentUserService currentUserService = new CurrentUserService(appUserRepository);
 
         assertThatThrownBy(currentUserService::getCurrentUserEntity)
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessage("This local account is already linked to another identity and cannot be rebound automatically");
+    }
+
+    @Test
+    void firstTimeMemberBootstrapIgnoresAccessClaimsAndUsesServerDefaults() {
+        when(appUserRepository.findByKeycloakUserId("subject-5")).thenReturn(Optional.empty());
+        when(appUserRepository.findByUsername("new.member")).thenReturn(Optional.empty());
+        when(appUserRepository.save(any(AppUser.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        SecurityContextHolder.getContext().setAuthentication(authentication(
+                Jwt.withTokenValue("token")
+                        .header("alg", "none")
+                        .subject("subject-5")
+                        .claim("preferred_username", "new.member")
+                        .claim("email", "new.member@library.local")
+                        .claim("realm_access", java.util.Map.of("roles", List.of("MEMBER")))
+                        .claim("library_account_status", "LOCKED")
+                        .claim("library_membership_status", "BORROW_BLOCKED")
+                        .claim("library_branch_id", 99)
+                        .claim("library_home_branch_id", 88)
+                        .build(),
+                List.of("ROLE_MEMBER")));
+
+        CurrentUserService currentUserService = new CurrentUserService(appUserRepository);
+        CurrentUser currentUser = currentUserService.getCurrentUser();
+
+        assertThat(currentUser.role()).isEqualTo(AppRole.MEMBER);
+        assertThat(currentUser.accountStatus()).isEqualTo(AccountStatus.ACTIVE);
+        assertThat(currentUser.membershipStatus()).isEqualTo(MembershipStatus.GOOD_STANDING);
+        assertThat(currentUser.branchId()).isNull();
+        assertThat(currentUser.homeBranchId()).isNull();
     }
 
     private JwtAuthenticationToken authentication(Jwt jwt, List<String> authorities) {

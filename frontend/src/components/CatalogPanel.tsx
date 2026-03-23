@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import { pluralize } from "../lib/format";
 import type { CatalogPanelProps } from "../view-models";
 import { BookCoverArt } from "./BookCoverArt";
@@ -22,6 +24,27 @@ export function CatalogPanel({
   onStartEdit,
   onOpenBook,
 }: CatalogPanelProps) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.ceil(books.length / 4);
+  const visibleBooks = totalPages === 0 ? [] : books.slice(page * 4, page * 4 + 4);
+
+  useEffect(() => {
+    setPage(0);
+  }, [query, categoryFilter, tagFilter]);
+
+  useEffect(() => {
+    if (totalPages === 0) {
+      if (page !== 0) {
+        setPage(0);
+      }
+      return;
+    }
+
+    if (page > totalPages - 1) {
+      setPage(totalPages - 1);
+    }
+  }, [page, totalPages]);
+
   function borrowableHoldingsForBook(book: CatalogPanelProps["books"][number]) {
     return book.availability.filter((holding) => holding.active && holding.availableQuantity > 0);
   }
@@ -40,7 +63,30 @@ export function CatalogPanel({
           <p className="section-label">Catalog Explorer</p>
           <h2>Search, filter, and execute circulation flows.</h2>
         </div>
-        <div className="status-chip">{loading ? "Refreshing data" : "Live data ready"}</div>
+        <div className="section-tools">
+          <div className="status-chip">{loading ? "Refreshing data" : "Live data ready"}</div>
+          <div className="pager-controls" aria-label="Catalog pagination">
+            <span className="page-badge">
+              {totalPages === 0 ? "Page 0 / 0" : `Page ${page + 1} / ${totalPages}`}
+            </span>
+            <button
+              type="button"
+              className="button-secondary pager-button"
+              onClick={() => setPage((current) => Math.max(0, current - 1))}
+              disabled={page === 0}
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              className="button-secondary pager-button"
+              onClick={() => setPage((current) => Math.min(Math.max(totalPages - 1, 0), current + 1))}
+              disabled={totalPages <= 1 || page >= totalPages - 1}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="command-grid">
@@ -85,8 +131,8 @@ export function CatalogPanel({
         </p>
       ) : null}
 
-      <div className="catalog-grid">
-        {books.map((book) => {
+      <div className="paged-grid catalog-paged-grid">
+        {visibleBooks.map((book) => {
           const borrowedCopies = book.totalQuantity - book.availableQuantity;
           const borrowableHoldings = borrowableHoldingsForBook(book);
           const stockTone =
@@ -143,6 +189,10 @@ export function CatalogPanel({
                 <div>
                   <dt>On loan</dt>
                   <dd>{pluralize(borrowedCopies, "copy", "copies")}</dd>
+                </div>
+                <div>
+                  <dt>Views</dt>
+                  <dd>{pluralize(book.viewCount, "view", "views")}</dd>
                 </div>
               </dl>
 

@@ -4,7 +4,9 @@ import java.time.Instant;
 import java.util.List;
 
 import com.example.library.catalog.Book;
+import com.example.library.common.OperationalActivityEvent;
 import com.example.library.circulation.BookBorrowedEvent;
+import com.example.library.circulation.BorrowingExceptionRecordedEvent;
 import com.example.library.circulation.BorrowingRenewedEvent;
 import com.example.library.circulation.BookReturnedEvent;
 import com.example.library.circulation.FineWaivedEvent;
@@ -20,12 +22,16 @@ import com.example.library.identity.UserDisciplineRecordedEvent;
 import com.example.library.identity.UserAccessUpdatedEvent;
 import jakarta.persistence.EntityManager;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.NestedExceptionUtils;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional(readOnly = true)
 public class ActivityLogService {
+
+    private static final String VIEWED_ONCE_INDEX = "ux_activity_log_viewed_user_book_once_per_reset";
 
     private final ActivityLogRepository activityLogRepository;
     private final CurrentUserService currentUserService;
@@ -61,15 +67,30 @@ public class ActivityLogService {
     }
 
     @Transactional
-    public void recordView(Long bookId) {
+    public BookViewRecordResponse recordView(Long bookId) {
         CurrentUser currentUser = currentUserService.getCurrentUser();
         Book book = bookReference(bookId);
-        activityLogRepository.save(new ActivityLog(
-                userReference(currentUser.id()),
-                book,
-                ActivityType.VIEWED,
-                "%s viewed \"%s\"".formatted(currentUser.username(), book.getTitle()),
-                Instant.now()));
+        boolean counted = false;
+        if (!activityLogRepository.existsByUserIdAndBookIdAndActivityType(currentUser.id(), bookId, ActivityType.VIEWED)) {
+            try {
+                activityLogRepository.saveAndFlush(new ActivityLog(
+                        userReference(currentUser.id()),
+                        book,
+                        ActivityType.VIEWED,
+                        "%s viewed \"%s\"".formatted(currentUser.username(), book.getTitle()),
+                        Instant.now()));
+                counted = true;
+            } catch (DataIntegrityViolationException exception) {
+                if (!isDuplicateViewedLogViolation(exception)) {
+                    throw exception;
+                }
+            }
+        }
+
+        return new BookViewRecordResponse(
+                bookId,
+                activityLogRepository.countByBookIdAndActivityType(bookId, ActivityType.VIEWED),
+                counted);
     }
 
     @EventListener
@@ -101,11 +122,23 @@ public class ActivityLogService {
                 userReference(event.actorUserId()),
                 bookReference(event.bookId()),
                 ActivityType.RENEWED,
-                "%s renewed \"%s\" for %s until %s".formatted(
+                renewalMessage(event),
+                event.occurredAt()));
+    }
+
+    @EventListener
+    @Transactional
+    public void onBorrowingExceptionRecorded(BorrowingExceptionRecordedEvent event) {
+        activityLogRepository.save(new ActivityLog(
+                userReference(event.actorUserId()),
+                bookReference(event.bookId()),
+                ActivityType.BORROWING_EXCEPTION_RECORDED,
+                "%s recorded %s on \"%s\" for %s. Note: %s".formatted(
                         event.actorUsername(),
+                        event.status().name().toLowerCase().replace('_', ' '),
                         event.bookTitle(),
                         event.targetUsername(),
-                        event.newDueAt()),
+                        event.note()),
                 event.occurredAt()));
     }
 
@@ -161,6 +194,17 @@ public class ActivityLogService {
                 null,
                 ActivityType.POLICY_UPDATED,
                 "%s updated circulation policy".formatted(event.actorUsername()),
+                event.occurredAt()));
+    }
+
+    @EventListener
+    @Transactional
+    public void onOperationalActivity(OperationalActivityEvent event) {
+        activityLogRepository.save(new ActivityLog(
+                userReference(event.actorUserId()),
+                null,
+                ActivityType.valueOf(event.activityType()),
+                event.message(),
                 event.occurredAt()));
     }
 
@@ -231,6 +275,15 @@ public class ActivityLogService {
     }
 
     private String borrowMessage(BookBorrowedEvent event) {
+        if (event.fromReadyReservation()) {
+            if (event.actorUsername().equals(event.targetUsername())) {
+                return "%s collected ready hold \"%s\"".formatted(event.actorUsername(), event.bookTitle());
+            }
+            return "%s checked out ready hold \"%s\" for %s".formatted(
+                    event.actorUsername(),
+                    event.bookTitle(),
+                    event.targetUsername());
+        }
         if (event.actorUsername().equals(event.targetUsername())) {
             return "%s borrowed \"%s\"".formatted(event.actorUsername(), event.bookTitle());
         }
@@ -238,5 +291,24 @@ public class ActivityLogService {
                 event.actorUsername(),
                 event.bookTitle(),
                 event.targetUsername());
+    }
+
+    private String renewalMessage(BorrowingRenewedEvent event) {
+        String base = "%s renewed \"%s\" for %s until %s".formatted(
+                event.actorUsername(),
+                event.bookTitle(),
+                event.targetUsername(),
+                event.newDueAt());
+        if (!event.overrideApplied()) {
+            return base;
+        }
+        return "%s with override. Reason: %s".formatted(base, event.reason());
+    }
+
+    private boolean isDuplicateViewedLogViolation(DataIntegrityViolationException exception) {
+        Throwable cause = NestedExceptionUtils.getMostSpecificCause(exception);
+        return cause != null
+                && cause.getMessage() != null
+                && cause.getMessage().contains(VIEWED_ONCE_INDEX);
     }
 }

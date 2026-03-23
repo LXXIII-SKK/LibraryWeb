@@ -2,14 +2,20 @@ package com.example.library.catalog;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
+import com.example.library.common.OperationalActivityEvent;
+import com.example.library.identity.CurrentUser;
+import com.example.library.identity.CurrentUserService;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.web.multipart.MultipartFile;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,19 +33,28 @@ public class CatalogService {
 
     private final BookRepository bookRepository;
     private final BookCoverRepository bookCoverRepository;
+    private final BookViewStatsRepository bookViewStatsRepository;
+    private final CurrentUserService currentUserService;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
-    public CatalogService(BookRepository bookRepository, BookCoverRepository bookCoverRepository) {
+    public CatalogService(
+            BookRepository bookRepository,
+            BookCoverRepository bookCoverRepository,
+            BookViewStatsRepository bookViewStatsRepository,
+            CurrentUserService currentUserService,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.bookRepository = bookRepository;
         this.bookCoverRepository = bookCoverRepository;
+        this.bookViewStatsRepository = bookViewStatsRepository;
+        this.currentUserService = currentUserService;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     public List<BookResponse> search(String query, String category, String tag) {
         String normalizedQuery = normalizeSearch(query);
         String normalizedCategory = normalizeSearch(category);
         String normalizedTag = normalizeSearch(tag);
-        return bookRepository.search(normalizedQuery, normalizedCategory, normalizedTag).stream()
-                .map(BookResponse::from)
-                .toList();
+        return toResponses(bookRepository.search(normalizedQuery, normalizedCategory, normalizedTag));
     }
 
     public BookFilterOptionsResponse filterOptions() {
@@ -54,7 +69,7 @@ public class CatalogService {
     }
 
     public BookResponse getById(Long id) {
-        return BookResponse.from(findEntity(id));
+        return toResponse(findEntity(id));
     }
 
     @Transactional
@@ -66,24 +81,30 @@ public class CatalogService {
                 normalize(request.isbn()),
                 0,
                 normalizeTags(request.tags()));
-        return BookResponse.from(bookRepository.save(book));
+        Book saved = bookRepository.save(book);
+        publishCatalogActivity("created catalog book", null, saved, Instant.now());
+        return toResponse(saved);
     }
 
     @Transactional
     public BookResponse update(Long id, BookRequest request) {
         Book book = findEntity(id);
+        String beforeState = describe(book);
         book.updateMetadata(
                 request.title().trim(),
                 request.author().trim(),
                 normalize(request.category()),
                 normalize(request.isbn()),
                 normalizeTags(request.tags()));
-        return BookResponse.from(book);
+        publishCatalogActivity("updated catalog book", beforeState, book, Instant.now());
+        return toResponse(book);
     }
 
     @Transactional
     public void delete(Long id) {
-        bookRepository.delete(findEntity(id));
+        Book book = findEntity(id);
+        publishCatalogActivity("deleted catalog book", describe(book), book, Instant.now());
+        bookRepository.delete(book);
     }
 
     @Transactional
@@ -109,7 +130,8 @@ public class CatalogService {
 
         book.markCoverImagePresent();
         bookCoverRepository.save(bookCover);
-        return BookResponse.from(book);
+        publishCatalogActivity("updated catalog cover", null, book, Instant.now());
+        return toResponse(book);
     }
 
     public BookCoverContent loadCover(Long id) {
@@ -143,6 +165,25 @@ public class CatalogService {
                 .distinct()
                 .sorted()
                 .toList();
+    }
+
+    private List<BookResponse> toResponses(List<Book> books) {
+        if (books.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, Long> viewCounts = bookViewStatsRepository.findViewCountsByBookIds(
+                books.stream().map(Book::getId).toList());
+
+        return books.stream()
+                .map(book -> BookResponse.from(book, viewCounts.getOrDefault(book.getId(), 0L)))
+                .toList();
+    }
+
+    private BookResponse toResponse(Book book) {
+        return BookResponse.from(
+                book,
+                bookViewStatsRepository.findViewCountByBookId(book.getId()));
     }
 
     private byte[] readFileContent(MultipartFile file) {
@@ -181,5 +222,30 @@ public class CatalogService {
         }
 
         throw new IllegalArgumentException("Only JPEG, PNG, WEBP, and GIF cover images are supported");
+    }
+
+    private void publishCatalogActivity(String action, String beforeState, Book book, Instant occurredAt) {
+        CurrentUser actor = currentUserService.getCurrentUser();
+        String currentState = describe(book);
+        String message = beforeState == null
+                ? "%s %s [%s]".formatted(actor.username(), action, currentState)
+                : action.startsWith("deleted")
+                ? "%s %s [%s]".formatted(actor.username(), action, beforeState)
+                : "%s %s from [%s] to [%s]".formatted(actor.username(), action, beforeState, currentState);
+        applicationEventPublisher.publishEvent(new OperationalActivityEvent(
+                actor.id(),
+                "CATALOG_UPDATED",
+                message,
+                occurredAt));
+    }
+
+    private String describe(Book book) {
+        return "title=%s, author=%s, category=%s, isbn=%s, tags=%s, hasCover=%s".formatted(
+                book.getTitle(),
+                book.getAuthor(),
+                book.getCategory(),
+                book.getIsbn(),
+                book.getTags(),
+                book.hasCoverImage());
     }
 }

@@ -11,6 +11,7 @@ public record BookHoldingResponse(
         LocationSummaryResponse location,
         int totalQuantity,
         int availableQuantity,
+        long trackedCopyCount,
         boolean active,
         boolean onlineAccess) {
 
@@ -24,6 +25,7 @@ public record BookHoldingResponse(
                 LocationSummaryResponse.from(holding.getLocation()),
                 holding.getTotalQuantity(),
                 holding.getAvailableQuantity(),
+                holding.getFormat() == HoldingFormat.PHYSICAL ? holding.getTotalQuantity() : 0,
                 holding.isActive(),
                 holding.hasOnlineAccess());
     }

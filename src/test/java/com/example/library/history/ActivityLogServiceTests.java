@@ -2,14 +2,19 @@ package com.example.library.history;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 
 import com.example.library.catalog.Book;
+import com.example.library.common.OperationalActivityEvent;
 import com.example.library.circulation.BookBorrowedEvent;
 import com.example.library.circulation.BookReturnedEvent;
+import com.example.library.identity.AccountStatus;
+import com.example.library.identity.CurrentUser;
+import com.example.library.identity.MembershipStatus;
 import com.example.library.identity.AppRole;
 import com.example.library.identity.AppUser;
 import jakarta.persistence.EntityManager;
@@ -36,10 +41,72 @@ class ActivityLogServiceTests {
     private ActivityLogService activityLogService;
 
     @Test
+    void recordViewPersistsFirstViewAndReturnsUpdatedCount() {
+        CurrentUser currentUser = new CurrentUser(
+                12L,
+                "user-1",
+                "reader",
+                "reader@library.local",
+                AppRole.MEMBER,
+                AccountStatus.ACTIVE,
+                MembershipStatus.GOOD_STANDING,
+                null,
+                null);
+        AppUser user = new AppUser("user-1", "reader", "reader@library.local", AppRole.MEMBER);
+        Book book = new Book("DDD", "Eric Evans", "Architecture", "9780321125217", 3);
+        org.springframework.test.util.ReflectionTestUtils.setField(book, "id", 9L);
+
+        when(currentUserService.getCurrentUser()).thenReturn(currentUser);
+        when(entityManager.getReference(Book.class, 9L)).thenReturn(book);
+        when(entityManager.getReference(AppUser.class, 12L)).thenReturn(user);
+        when(activityLogRepository.existsByUserIdAndBookIdAndActivityType(12L, 9L, ActivityType.VIEWED)).thenReturn(false);
+        when(activityLogRepository.saveAndFlush(any(ActivityLog.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(activityLogRepository.countByBookIdAndActivityType(9L, ActivityType.VIEWED)).thenReturn(4L);
+
+        BookViewRecordResponse response = activityLogService.recordView(9L);
+
+        ArgumentCaptor<ActivityLog> captor = ArgumentCaptor.forClass(ActivityLog.class);
+        verify(activityLogRepository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getActivityType()).isEqualTo(ActivityType.VIEWED);
+        assertThat(captor.getValue().getMessage()).contains("reader viewed");
+        assertThat(response.bookId()).isEqualTo(9L);
+        assertThat(response.viewCount()).isEqualTo(4L);
+        assertThat(response.counted()).isTrue();
+    }
+
+    @Test
+    void recordViewDoesNotPersistDuplicateViewForSameUserAndBook() {
+        CurrentUser currentUser = new CurrentUser(
+                12L,
+                "user-1",
+                "reader",
+                "reader@library.local",
+                AppRole.MEMBER,
+                AccountStatus.ACTIVE,
+                MembershipStatus.GOOD_STANDING,
+                null,
+                null);
+        Book book = new Book("DDD", "Eric Evans", "Architecture", "9780321125217", 3);
+        org.springframework.test.util.ReflectionTestUtils.setField(book, "id", 9L);
+
+        when(currentUserService.getCurrentUser()).thenReturn(currentUser);
+        when(entityManager.getReference(Book.class, 9L)).thenReturn(book);
+        when(activityLogRepository.existsByUserIdAndBookIdAndActivityType(12L, 9L, ActivityType.VIEWED)).thenReturn(true);
+        when(activityLogRepository.countByBookIdAndActivityType(9L, ActivityType.VIEWED)).thenReturn(4L);
+
+        BookViewRecordResponse response = activityLogService.recordView(9L);
+
+        verify(activityLogRepository, never()).saveAndFlush(any(ActivityLog.class));
+        assertThat(response.bookId()).isEqualTo(9L);
+        assertThat(response.viewCount()).isEqualTo(4L);
+        assertThat(response.counted()).isFalse();
+    }
+
+    @Test
     void borrowedEventCreatesBorrowedActivityLog() {
         AppUser user = new AppUser("user-1", "reader", "reader@library.local", AppRole.MEMBER);
         Book book = new Book("DDD", "Eric Evans", "Architecture", "9780321125217", 3);
-        BookBorrowedEvent event = new BookBorrowedEvent(12L, "reader", 12L, "reader", 9L, "DDD", Instant.now());
+        BookBorrowedEvent event = new BookBorrowedEvent(12L, "reader", 12L, "reader", 9L, "DDD", false, Instant.now());
 
         when(entityManager.getReference(AppUser.class, 12L)).thenReturn(user);
         when(entityManager.getReference(Book.class, 9L)).thenReturn(book);
@@ -50,6 +117,22 @@ class ActivityLogServiceTests {
         verify(activityLogRepository).save(captor.capture());
         assertThat(captor.getValue().getActivityType()).isEqualTo(ActivityType.BORROWED);
         assertThat(captor.getValue().getMessage()).contains("reader borrowed");
+    }
+
+    @Test
+    void readyHoldBorrowEventCreatesPickupMessage() {
+        AppUser user = new AppUser("manager-1", "branch.manager", "manager@library.local", AppRole.BRANCH_MANAGER);
+        Book book = new Book("DDD", "Eric Evans", "Architecture", "9780321125217", 3);
+        BookBorrowedEvent event = new BookBorrowedEvent(7L, "branch.manager", 12L, "reader", 9L, "DDD", true, Instant.now());
+
+        when(entityManager.getReference(AppUser.class, 7L)).thenReturn(user);
+        when(entityManager.getReference(Book.class, 9L)).thenReturn(book);
+
+        activityLogService.onBookBorrowed(event);
+
+        ArgumentCaptor<ActivityLog> captor = ArgumentCaptor.forClass(ActivityLog.class);
+        verify(activityLogRepository).save(captor.capture());
+        assertThat(captor.getValue().getMessage()).contains("ready hold");
     }
 
     @Test
@@ -68,5 +151,25 @@ class ActivityLogServiceTests {
         verify(activityLogRepository).save(captor.capture());
         assertThat(captor.getValue().getActivityType()).isEqualTo(ActivityType.RETURNED);
         assertThat(captor.getValue().getMessage()).contains("for reader");
+    }
+
+    @Test
+    void operationalActivityEventCreatesAuditLogWithoutBook() {
+        AppUser user = new AppUser("manager-1", "branch.manager", "manager@library.local", AppRole.BRANCH_MANAGER);
+        OperationalActivityEvent event = new OperationalActivityEvent(
+                7L,
+                "BRANCH_UPDATED",
+                "branch.manager updated branch [code=CENTRAL]",
+                Instant.now());
+
+        when(entityManager.getReference(AppUser.class, 7L)).thenReturn(user);
+
+        activityLogService.onOperationalActivity(event);
+
+        ArgumentCaptor<ActivityLog> captor = ArgumentCaptor.forClass(ActivityLog.class);
+        verify(activityLogRepository).save(captor.capture());
+        assertThat(captor.getValue().getActivityType()).isEqualTo(ActivityType.BRANCH_UPDATED);
+        assertThat(captor.getValue().getBook()).isNull();
+        assertThat(captor.getValue().getMessage()).contains("updated branch");
     }
 }

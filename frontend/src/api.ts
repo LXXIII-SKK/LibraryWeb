@@ -4,6 +4,7 @@ import type {
   Book,
   BookHolding,
   BookFilters,
+  BorrowingExceptionAction,
   Borrowing,
   DigitalAccessLink,
   DiscoveryBook,
@@ -24,7 +25,28 @@ import type {
 } from "./types";
 import { getAccessToken } from "./auth";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+function normalizeBaseUrl(value: string | undefined, fallback: string) {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const baseUrl = value.trim();
+  if (!baseUrl) {
+    return "";
+  }
+
+  if (/^https?:\/\//.test(baseUrl)) {
+    return baseUrl.replace(/\/$/, "");
+  }
+
+  if (baseUrl.startsWith("/")) {
+    return baseUrl.replace(/\/$/, "");
+  }
+
+  return fallback;
+}
+
+const apiBaseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL, "http://localhost:8080");
 
 function toApiUrl(path: string | null | undefined) {
   if (!path) {
@@ -144,8 +166,14 @@ export function fetchDiscovery(): Promise<DiscoveryResponse> {
   return requestWithAuth<DiscoveryResponse>("/api/discovery", false).then(mapDiscovery);
 }
 
-export function recordBookView(bookId: number): Promise<void> {
-  return request<void>(`/api/books/${bookId}/view`, {
+type BookViewRecord = {
+  bookId: number;
+  viewCount: number;
+  counted: boolean;
+};
+
+export function recordBookView(bookId: number): Promise<BookViewRecord> {
+  return request<BookViewRecord>(`/api/books/${bookId}/view`, {
     method: "POST",
   });
 }
@@ -201,10 +229,29 @@ export function returnBook(transactionId: number): Promise<Borrowing> {
   });
 }
 
-export function renewBorrowing(transactionId: number, dueAt?: string): Promise<Borrowing> {
+export function renewBorrowing(transactionId: number, dueAt?: string | null, reason?: string): Promise<Borrowing> {
+  const payload: Record<string, string> = {};
+  if (dueAt) {
+    payload.dueAt = dueAt;
+  }
+  if (reason?.trim()) {
+    payload.reason = reason.trim();
+  }
+
   return request<Borrowing>(`/api/borrowings/${transactionId}/renew`, {
     method: "POST",
-    body: dueAt ? JSON.stringify({ dueAt }) : undefined,
+    body: Object.keys(payload).length > 0 ? JSON.stringify(payload) : undefined,
+  });
+}
+
+export function recordBorrowingException(
+  transactionId: number,
+  action: BorrowingExceptionAction,
+  note: string,
+): Promise<Borrowing> {
+  return request<Borrowing>(`/api/borrowings/${transactionId}/exception`, {
+    method: "POST",
+    body: JSON.stringify({ action, note }),
   });
 }
 
@@ -291,6 +338,10 @@ export function fetchUserAccessOptions(userId: number): Promise<AccessOptions> {
   return request<AccessOptions>(`/api/users/${userId}/options`);
 }
 
+export function fetchStaffRegistrationOptions(): Promise<AccessOptions> {
+  return request<AccessOptions>("/api/users/staff-registration/options");
+}
+
 export function fetchUserDisciplineHistory(userId: number): Promise<UserDisciplineRecord[]> {
   return request<UserDisciplineRecord[]>(`/api/users/${userId}/discipline`);
 }
@@ -306,6 +357,24 @@ type UserAccessPayload = {
 export function updateUserAccess(userId: number, payload: UserAccessPayload): Promise<UserAccess> {
   return request<UserAccess>(`/api/users/${userId}/access`, {
     method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+type StaffRegistrationPayload = {
+  username: string;
+  email: string;
+  password: string;
+  role: string;
+  accountStatus: string;
+  branchId: number | null;
+  homeBranchId: number | null;
+  requirePasswordChange: boolean;
+};
+
+export function registerStaff(payload: StaffRegistrationPayload): Promise<UserAccess> {
+  return request<UserAccess>("/api/users/staff-registration", {
+    method: "POST",
     body: JSON.stringify(payload),
   });
 }
@@ -502,7 +571,6 @@ type StaffNotificationPayload = {
   title: string;
   message: string;
   branchId: number | null;
-  targetUserId?: number | null;
   targetRoles: string[];
 };
 

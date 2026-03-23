@@ -161,6 +161,11 @@ public class BookHolding {
         validateLocation(location, branch, format);
     }
 
+    public void synchronizeInventory(int totalQuantity, int availableQuantity) {
+        this.totalQuantity = validateTotal(totalQuantity);
+        this.availableQuantity = validateAvailable(totalQuantity, availableQuantity);
+    }
+
     public void borrowOne() {
         if (!active || availableQuantity <= 0) {
             throw new IllegalArgumentException("This holding is not available for borrowing");

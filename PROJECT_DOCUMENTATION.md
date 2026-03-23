@@ -50,17 +50,22 @@ The access layer is permission-driven. Roles expand into permissions, and servic
 
 ### 2.4 Branch user-control hierarchy
 
-User access management is intentionally hierarchical inside a branch:
+User access management is intentionally hierarchical:
 
 - `LIBRARIAN`
   - cannot read or manage user accounts directly
-  - can manage catalog and inventory only
-  - can send a discipline-review request to branch managers or administrators for a member in the same branch
+  - can manage catalog and inventory inside the branch
+  - can submit a discipline-review request for a same-branch member through notifications
 - `BRANCH_MANAGER`
   - can read and manage `MEMBER` and `LIBRARIAN` accounts in the same branch
   - cannot read or manage peer `BRANCH_MANAGER` accounts or any global role accounts
+  - can see effective permission maps for manageable same-branch users
 - `ADMIN`
   - can read and manage all user accounts globally
+  - can change roles, statuses, branches, and discipline state
+- `AUDITOR`
+  - can read user records globally in a read-only mode
+  - cannot mutate users and does not get other users' effective permission maps
 
 This hierarchy applies to:
 
@@ -72,7 +77,7 @@ This hierarchy applies to:
 
 ### 2.5 Member state reference
 
-The project uses two separate state fields for members:
+The project uses two separate state fields:
 
 - `account_status`
 - `membership_status`
@@ -85,35 +90,36 @@ They are not the same thing:
 Current behavior in code:
 
 - only `ACTIVE` account status is treated as active
-- only `GOOD_STANDING` membership status allows self-service borrowing, renewing, and reservation creation
-- non-good-standing membership statuses can still sign in if Keycloak authentication succeeds, but the application blocks new borrow/reserve flows
+- only `GOOD_STANDING` membership status allows self-service borrowing, renewing, reservation creation, and reservation collection
+- non-good-standing membership statuses can still sign in if Keycloak authentication succeeds, but the application blocks new borrowing-style actions
 
 Account status meaning:
 
 - `PENDING_VERIFICATION`
   - account exists locally but is not treated as active by the app
-  - protected member actions are blocked until status is changed to `ACTIVE`
+  - protected actions are blocked until status is changed to `ACTIVE`
   - no seeded demo login currently ships for this state
 - `ACTIVE`
   - the only account status treated as active by the app
-  - member capabilities still depend on `membership_status`
+  - capabilities still depend on `membership_status`
 - `SUSPENDED`
   - the account is not treated as active by the app
-  - protected member actions are blocked
+  - protected actions are blocked
   - no seeded demo login currently ships for this state
 - `LOCKED`
   - the account is not treated as active by the app
-  - protected member actions are blocked
+  - protected actions are blocked
+  - used as the resulting status for a `BAN` discipline action
   - no seeded demo login currently ships for this state
 - `ARCHIVED`
   - the account is not treated as active by the app
-  - protected member actions are blocked
+  - protected actions are blocked
   - no seeded demo login currently ships for this state
 
 Membership status meaning:
 
 - `GOOD_STANDING`
-  - member can use normal self-service borrowing, renewing, and reservation creation
+  - member can use normal self-service borrowing, renewing, reservation creation, and reservation collection
 - `OVERDUE_RESTRICTED`
   - member can sign in and inspect account data
   - self-service borrowing, renewal, and reservation creation are blocked
@@ -149,6 +155,35 @@ Membership status:
 
 - `EXPIRED`
 
+Discipline transitions:
+
+- `SUSPEND` -> `SUSPENDED`
+- `BAN` -> `LOCKED`
+- `REINSTATE` -> `ACTIVE`
+- only `ACTIVE` users can be suspended or banned
+- only `SUSPENDED` or `LOCKED` users can be reinstated
+
+### 2.6 Identity provisioning and seeded account synchronization
+
+The shipped identity model has two layers:
+
+- imported Keycloak realm users for browser login
+- local `app_user` rows for application role, branch, and status enforcement
+
+Current behavior:
+
+- seeded demo users now ship with deterministic Keycloak subject ids in `realm-library.json`
+- migration `V19__stabilize_demo_keycloak_ids.sql` aligns existing Flyway-seeded `app_user` rows to those stable ids
+- on the first authenticated request, `CurrentUserService` first looks up the JWT subject, then only falls back to username when the local row still carries a legacy `seed-*` placeholder
+- a brand-new local user is auto-created only when the authenticated principal resolves to `MEMBER`
+- new auto-created members default to `ACTIVE` + `GOOD_STANDING` with no branch or home-branch assignment until local provisioning changes them
+- non-member identities require local provisioning before they can use the application
+
+Shipped-realm caveat:
+
+- registration is enabled in Keycloak, but new self-registered accounts are not automatically provisioned into ready-to-use library accounts
+- seeded demo identities now survive Keycloak recreation cleanly, but a full Keycloak-to-local admin provisioning and synchronization workflow is still not implemented
+
 ## 3. High-Level Architecture
 
 ### 3.1 Runtime architecture
@@ -156,8 +191,9 @@ Membership status:
 - React renders the browser UI
 - Spring Boot exposes REST endpoints under `/api`
 - PostgreSQL stores catalog, circulation, policy, and identity data
-- Keycloak handles login, registration, logout, and token issuance
+- Keycloak handles login, registration, logout, password reset, account management, and token issuance
 - Docker Compose orchestrates the local stack
+- optional public-test mode serves the SPA, `/api`, and Keycloak `/auth` behind one frontend origin through nginx proxying
 
 ### 3.2 Backend module structure
 
@@ -206,10 +242,11 @@ Data access layer:
 Anonymous users can:
 
 - open the landing page
-- browse discovery sections
+- browse discovery sections with paged 4-card rails
 - search books
 - filter by category
 - filter by tags sourced across the full catalog
+- browse the dedicated upcoming acquisitions page
 - open book detail pages
 - view public availability summaries
 - see where a physical title is currently available
@@ -273,7 +310,8 @@ Access workspace user-control boundaries:
 
 - librarians do not receive the access panel
 - branch managers see member and librarian accounts from their own branch
-- only admins see all users across all branches and roles
+- auditors can read users globally in read-only mode
+- only admins can mutate users across all branches and roles
 
 ### 4.4 Audit trail
 
@@ -289,6 +327,12 @@ The system records activity for:
 - policy updates
 - access updates
 
+Book-view counting rules:
+
+- `POST /api/books/{id}/view` counts at most one authenticated, non-auditor view per user and book until the next reset cycle
+- the endpoint returns the authoritative current count plus a `counted` flag so the frontend does not rely on local `+1` assumptions
+- the weekly reset script works by deleting `VIEWED` rows, which also clears those view entries from activity history
+
 ## 5. Frontend Structure
 
 Implemented browser routes:
@@ -297,6 +341,8 @@ Implemented browser routes:
   - landing page and discovery
 - `/books`
   - books workspace
+- `/upcoming`
+  - upcoming acquisitions workspace
 - `/books/:id`
   - book detail page
 - `/me`
@@ -308,6 +354,7 @@ Key frontend areas:
 
 - `WelcomePage`
 - `BooksWorkspacePage`
+- `UpcomingWorkspacePage`
 - `BookDetailPage`
 - `UserHubPage`
 - `AdminPage`
@@ -427,7 +474,7 @@ The seeded dataset includes:
 - open and waived fines
 - a global policy record
 - enterprise access records
-- discipline records for member suspension and reinstatement smoke tests if exercised in a running environment
+- discipline workflow tables and event logging support
 
 Seeded realm accounts:
 
@@ -446,6 +493,12 @@ Seeded realm accounts:
 - `east.member / reader123`
 - `hq.member / reader123`
 - `compliance.auditor / auditor123`
+
+Seeded-user linkage notes:
+
+- matching local `app_user` rows are seeded through Flyway and normalized to deterministic demo-user Keycloak ids by `V19__stabilize_demo_keycloak_ids.sql`
+- the first authenticated backend request now usually matches directly by JWT subject
+- automatic username relinking remains only as a compatibility path for legacy `seed-*` identities
 
 Seeded member-state coverage:
 
@@ -488,9 +541,10 @@ Implemented protections:
 Current limitations:
 
 - local application access is authoritative after bootstrap, but there is no Keycloak admin synchronization flow yet
+- registration is enabled in Keycloak, but self-registration does not yet complete usable library-account provisioning on its own
 - branch-aware holdings exist, but full copy/barcode transfer workflows are still not implemented
 - pickup-branch transfers and hold-routing rules are not implemented yet
-- members cannot yet edit their profile or change passwords from the application surface
+- members cannot yet edit their profile or change passwords from the local application UI; those actions are delegated to Keycloak account management
 
 ## 10. Setup and Runtime
 
@@ -539,18 +593,27 @@ Important: do not run the Docker backend and the local JVM backend at the same t
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3001`
 
+### 10.4 Public test mode
+
+- Windows Command Prompt wrapper: `scripts\start-public-test.cmd -PublicUrl https://<your-ngrok-url>`
+- tunnel only `http://localhost:3000`
+- do not expose `8080` or `8081` directly
+- the public frontend origin proxies `/api` to the backend and `/auth` to Keycloak, so testers only need one URL
+- full how-to: `docs/NGROK_WINDOWS_SINGLE_PORT_SETUP.md`
+
 ## 11. Review Walkthrough
 
 1. Open `http://localhost:3000`
 2. Review the landing page discovery sections
-3. Open `/books`
-4. Search by title or filter by tag
-5. Open a book detail page and inspect cover, metadata, and availability
-6. Sign in as `reader`
-7. Borrow or reserve an eligible title
-8. Open `/me` and review borrowings, reservations, fines, and activity
-9. Sign in as `branch.librarian`, `branch.manager`, `admin`, or `compliance.auditor`
-10. Open `/admin` and verify the permission-specific operations panels
+3. Open `/upcoming`
+4. Open `/books`
+5. Search by title or filter by tag
+6. Open a book detail page and inspect cover, metadata, and availability
+7. Sign in as `reader`
+8. Borrow or reserve an eligible title
+9. Open `/me` and review borrowings, reservations, fines, and activity
+10. Sign in as `branch.librarian`, `branch.manager`, `admin`, or `compliance.auditor`
+11. Open `/admin` and verify the permission-specific operations panels
 
 ## 12. Delivery Status
 
@@ -559,7 +622,7 @@ The current implementation delivers:
 - React frontend
 - SQL-backed persistence
 - REST API
-- authentication and self-registration
+- authentication plus Keycloak-hosted registration and account-management UI
 - enterprise role model
 - tag-aware catalog filtering
 - cover image support
@@ -567,4 +630,4 @@ The current implementation delivers:
 - operations workspace and access management
 - audit history
 
-The main remaining gaps are copy-level inventory, pickup-branch transfer workflows, full Keycloak admin synchronization, and profile self-service.
+The main remaining gaps are copy-level inventory, pickup-branch transfer workflows, full Keycloak admin synchronization, and complete self-registration provisioning.

@@ -1,4 +1,4 @@
-import { formatDateTime } from "../lib/format";
+import { formatDateTime, humanizeToken } from "../lib/format";
 import { ActivityPanel } from "./ActivityPanel";
 import { ProfilePanel } from "./ProfilePanel";
 import type { UserHubPageProps } from "../view-models";
@@ -20,6 +20,7 @@ export function UserHubPage({
   stats,
   onLogin,
   onRegister,
+  onNavigateBooks,
   onManageAccount,
   onOpenBook,
   onReturn,
@@ -66,6 +67,21 @@ export function UserHubPage({
         </div>
       </section>
 
+      <section className="identity-card hero-session-card">
+        <span className="identity-label">Current session</span>
+        <strong>{profile.username}</strong>
+        <p>
+          {humanizeToken(profile.role)} access
+          {profile.homeBranch ? ` with ${profile.homeBranch.name} as your home branch.` : "."}
+        </p>
+        <div className="hero-actions hero-session-actions">
+          <button onClick={onNavigateBooks}>Browse books</button>
+          <button className="button-secondary" onClick={onManageAccount}>
+            Manage account
+          </button>
+        </div>
+      </section>
+
       <section className="workspace-grid user-grid">
         <ProfilePanel profile={profile} onManageAccount={onManageAccount} />
         <div className="surface user-borrowings">
@@ -87,10 +103,14 @@ export function UserHubPage({
                       <p>
                         Borrowed {formatDateTime(borrowing.borrowedAt)}. Due {formatDateTime(borrowing.dueAt)}.
                       </p>
+                      {borrowing.lastRenewalOverride && borrowing.lastRenewalReason ? (
+                        <p>Desk override: {borrowing.lastRenewalReason}</p>
+                      ) : null}
+                      {borrowing.exceptionNote ? <p>Desk note: {borrowing.exceptionNote}</p> : null}
                       <span className={`pill pill-${borrowing.status.toLowerCase()}`}>{borrowing.status}</span>
                     </div>
                     <div className="inline-actions">
-                      {borrowing.digitalAccessAvailable ? (
+                      {borrowing.digitalAccessAvailable && borrowing.status === "BORROWED" ? (
                         <button className="button-secondary" onClick={() => onOpenDigitalAccess(borrowing.id)}>
                           Open online access
                         </button>
@@ -98,13 +118,13 @@ export function UserHubPage({
                       <button
                         className="button-secondary"
                         onClick={() => onRenew(borrowing.id)}
-                        disabled={!canRenewOwnBorrowings || borrowing.status === "RETURNED"}
+                        disabled={!canRenewOwnBorrowings || borrowing.status !== "BORROWED"}
                       >
                         Renew
                       </button>
                       <button
                         onClick={() => onReturn(borrowing.id)}
-                        disabled={!canReturnOwnBorrowings || borrowing.status === "RETURNED"}
+                        disabled={!canReturnOwnBorrowings || borrowing.status !== "BORROWED"}
                       >
                         {borrowing.status === "RETURNED" ? "Returned" : "Return"}
                       </button>

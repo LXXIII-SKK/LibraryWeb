@@ -29,6 +29,12 @@ class InventoryController {
         return inventoryService.listManagedHoldings();
     }
 
+    @GetMapping("/copies")
+    @PreAuthorize("@authorizationService.canManageInventory()")
+    List<BookCopyResponse> listCopies() {
+        return inventoryService.listManagedCopies();
+    }
+
     @PostMapping("/holdings")
     @PreAuthorize("@authorizationService.canManageInventory()")
     BookHoldingResponse createHolding(@Valid @RequestBody BookHoldingUpsertRequest request) {

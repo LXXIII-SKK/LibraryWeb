@@ -8,7 +8,7 @@ public record LocationSummaryResponse(
         String zoneLabel,
         boolean active) {
 
-    static LocationSummaryResponse from(LibraryLocation location) {
+    public static LocationSummaryResponse from(LibraryLocation location) {
         if (location == null) {
             return null;
         }

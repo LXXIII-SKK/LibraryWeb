@@ -88,6 +88,12 @@ public class AuthorizationService {
                         || canMutateGlobally(currentUser));
     }
 
+    public boolean canManageBorrowingExceptions() {
+        CurrentUser currentUser = currentUserService.getCurrentUser();
+        return isActive(currentUser)
+                && (currentUser.hasPermission(AppPermission.LOAN_CLOSE_BRANCH) || canMutateGlobally(currentUser));
+    }
+
     public boolean canReadOwnBorrowings() {
         CurrentUser currentUser = currentUserService.getCurrentUser();
         return isActive(currentUser) && currentUser.hasPermission(AppPermission.LOAN_SELF_READ);
@@ -141,6 +147,13 @@ public class AuthorizationService {
 
     public boolean canManageUserDiscipline() {
         return canManageUsers();
+    }
+
+    public boolean canRegisterStaff() {
+        CurrentUser currentUser = currentUserService.getCurrentUser();
+        return isActive(currentUser)
+                && currentUser.hasPermission(AppPermission.USER_MANAGE_GLOBAL)
+                && canMutateGlobally(currentUser);
     }
 
     public boolean canRequestUserDiscipline() {
@@ -225,6 +238,20 @@ public class AuthorizationService {
             return;
         }
         throw new AccessDeniedException("You do not have permission to return this borrowing");
+    }
+
+    public void assertCanManageBorrowingExceptionsForUser(AppUser targetUser) {
+        CurrentUser currentUser = currentUserService.getCurrentUser();
+        if (canMutateGlobally(currentUser)) {
+            return;
+        }
+        if (currentUser.scope() == AccessScope.BRANCH
+                && currentUser.hasPermission(AppPermission.LOAN_CLOSE_BRANCH)
+                && currentUser.branchId() != null
+                && currentUser.belongsToBranch(targetUser.getBranchId())) {
+            return;
+        }
+        throw new AccessDeniedException("You do not have permission to record an exception on this borrowing");
     }
 
     public void assertCanRenewBorrowingForUser(AppUser targetUser) {
@@ -352,6 +379,13 @@ public class AuthorizationService {
                 || !BRANCH_MANAGEABLE_ACCOUNT_STATUSES.contains(request.accountStatus())) {
             throw new AccessDeniedException("This role cannot apply the requested access change");
         }
+    }
+
+    public void assertCanRegisterStaff() {
+        if (canRegisterStaff()) {
+            return;
+        }
+        throw new AccessDeniedException("You do not have permission to register staff accounts");
     }
 
     public void assertCanApplyUserDiscipline(AppUser targetUser, UserDisciplineActionType action) {

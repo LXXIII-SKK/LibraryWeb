@@ -2,198 +2,156 @@
 
 ## Purpose
 
-This document describes the current website behavior from the user perspective and maps each major page to its underlying flow.
+This document describes the current route behavior in the React application and shows how authentication and permissions shape what each page loads.
 
 ## Main Screens
 
-- Welcome page
-- Books workspace
-- Book detail page
-- User account page
-- Admin page
+- welcome page
+- books workspace
+- book detail page
+- my page
+- operations workspace
 
-## 1. Website Load Flow
+## 1. App Bootstrap Flow
 
-1. User opens `http://localhost:3000`.
-2. React initializes the app and route state.
-3. Keycloak silent SSO check runs.
-4. The app loads public data:
+1. The browser loads `http://localhost:3000`.
+2. React resolves route state from the current pathname.
+3. Keycloak silent SSO runs through `initAuth()`.
+4. Public data loads for every visitor:
    - discovery feed
-   - book catalog
-5. If the user is authenticated, it also loads:
-   - profile
-   - personal borrowings
-   - personal activity logs
-6. If the user is admin, it also loads:
-   - all borrowings
-   - all activity logs
+   - catalog books
+   - filter metadata
+   - upcoming books
+   - public branch list
+5. After authentication, the frontend loads `/api/profile`.
+6. Additional private requests are then selected from the returned permission set, including:
+   - personal borrowings, reservations, fines, and activity
+   - notifications
+   - operational borrowings, reservations, fines, users, policy, branches, holdings, locations, and activity
 
-## 2. Welcome Page Flow
+In single-origin public-test mode, the same browser shell serves the SPA and reaches the backend under `/api` plus Keycloak under `/auth`.
 
-Route:
-
-- `/`
-
-What the page shows:
-
-- recommendation section
-- most borrowed books this week
-- most viewed books this week
-- entry points into the rest of the app
-
-Flow:
-
-1. Frontend requests `/api/discovery`.
-2. Backend aggregates discovery sections.
-3. Discovery cards render on the page.
-4. User can open a specific book from a discovery card.
-
-## 3. Guest Browsing Flow
+## 2. Public Browsing Flow
 
 Guests can:
 
-- open the welcome page
-- browse the books page
-- search by title, author, or category
-- open a book detail page
-- inspect stock and metadata
+- browse `/`
+- browse `/books`
+- browse `/upcoming`
+- open `/books/:id`
+- trigger Keycloak login or registration
+- open `/me` and see a sign-in prompt
+- open `/admin` and see the restricted-state message
 
 Guests cannot:
 
-- borrow books
-- open `/me`
-- use admin actions
-- open `/admin`
+- call protected APIs
+- borrow, renew, reserve, or collect
+- open notifications
+- access operations panels
 
-## 4. Login And Registration Flow
+## 3. Login, Registration, And Account Management Flow
 
-1. User clicks `Login` or `Register`.
-2. Browser navigates to Keycloak.
-3. Custom library-themed Keycloak pages render.
-4. Inline validation warns on invalid or empty fields as the user leaves them.
-5. After successful authentication, the browser returns to the app.
-6. The frontend reloads protected data and role-dependent UI.
+1. The user clicks `Login` or `Register` in the top bar or empty-state page.
+2. The browser navigates to Keycloak.
+3. The custom library Keycloak theme renders the hosted forms.
+4. After authentication, the browser returns to the React app.
+5. The app reloads profile data and the permission-scoped private datasets.
+6. From `/me`, the `Manage profile & password` action opens Keycloak account management.
 
-## 5. Books Workspace Flow
+Important caveat:
 
-Route:
+- the shipped realm exposes registration, but a brand-new signup is not automatically provisioned into a usable library account
 
-- `/books`
+## 4. Welcome And Books Flow
 
-What the page does:
+`/`:
 
-- browse catalog
-- search and filter
-- choose a due date
-- borrow directly from the list
-- open a specific book detail page
+- shows the recommendation hero first
+- renders most-borrowed, most-viewed, and upcoming sections in 4-card pages
+- keeps the upcoming section at the end of the page
+- exposes a shortcut into the dedicated upcoming workspace
 
-Flow:
+`/books`:
 
-1. User types into the search or filter controls.
-2. Frontend requests `GET /api/books`.
-3. Matching books render as cards.
-4. Signed-in users can choose a due date and borrow from the card.
-5. On success, the app refreshes catalog, borrowings, and activity data immediately.
+- supports query, category, and tag filtering
+- paginates the visible catalog in groups of 4 titles
+- shows current quantity and online-access hints
+- enables borrow and reserve actions only when the signed-in profile is currently eligible
 
-## 6. Book Detail Flow
+`/upcoming`:
 
-Route:
+- provides a dedicated acquisitions page separate from the live catalog
+- supports client-side search and branch filtering
+- paginates the visible upcoming titles in groups of 4
 
-- `/books/:id`
+`/books/:id`:
 
-What the page shows:
+- loads the full book response
+- records a book view for authenticated non-auditors
+- uses the backend-returned count so the UI does not double-increment in local development
+- counts at most one view per signed-in user and book until the next reset
+- shows branch-aware holdings, recent related activity, and pickup-branch options
 
-- title, author, category, ISBN
-- total and available quantity
-- current availability state
-- recent activity context
-- borrow action for signed-in users
+## 5. My Page Flow
 
-Flow:
+`/me` serves both anonymous and signed-in states.
 
-1. User opens a book card or detail link.
-2. Frontend requests `GET /api/books/{id}`.
-3. If authenticated, frontend also posts `POST /api/books/{id}/view`.
-4. Book details render on the page.
-5. If the user borrows from this page, the app refreshes both shared data and the currently open book detail record immediately.
+Anonymous state:
 
-## 7. User Account Flow
+- sign-in/register call to action
+- summary of what the account workspace contains
 
-Route:
+Signed-in state:
 
-- `/me`
-
-What the page shows:
-
-- current user profile
-- active and past borrowings
-- due dates
+- profile card with role, statuses, scope, branch, home branch, and permission count
+- borrowings with renew, return, and digital-access actions when allowed
+- reservations with cancel and collect actions when allowed
+- fines and overdue context
+- targeted notifications with mark-read action
 - personal activity history
 
-Flow:
+## 6. Operations Workspace Flow
 
-1. Signed-in user opens `/me`.
-2. Frontend loads `/api/profile`, `/api/borrowings/me`, and `/api/activity-logs/me`.
-3. The page renders current loans and historical activity.
-4. User can return eligible books from this page.
-5. On success, the page refreshes immediately.
+`/admin` is not admin-only. It is an operations workspace rendered whenever the current permission set grants at least one operational capability.
 
-## 8. Admin Page Flow
+Typical visibility by role:
 
-Route:
+- `LIBRARIAN`
+  - catalog and inventory work
+  - discipline-review request form
+- `BRANCH_MANAGER`
+  - branch-scoped circulation, fines, notifications, users, policies, and inventory
+- `ADMIN`
+  - full operational control, including branch management, global user management, and hard delete for books
+- `AUDITOR`
+  - global read-only operations review
 
-- `/admin`
+If a signed-in user lacks operational permissions, `/admin` shows a restricted-state page instead of the console.
 
-Access:
+## 7. Notifications Flow
 
-- admin users only
+- Active signed-in users can read visible notifications through the top-bar tray and the `/me` page.
+- Branch managers and admins can send staff notifications from the operations workspace.
+- Librarians can create discipline-review requests for same-branch members, which are delivered as notifications to branch managers and admins.
 
-What the page shows:
+## 8. Validation And Refresh Flow
 
-- create and edit book form
-- delete book action
-- full borrowings list
-- force return controls
-- system-wide activity log
+- React form state prevents incomplete or invalid operational submissions.
+- Keycloak-hosted pages handle their own login and registration validation.
+- After each successful mutation, the frontend refreshes the affected datasets instead of relying on stale local assumptions.
 
-Flow:
+## 9. Frontend Structure Notes
 
-1. Admin opens `/admin`.
-2. Frontend verifies role-based access before rendering the page.
-3. Admin actions call protected book, borrowing, and activity endpoints.
-4. Non-admin users do not see the nav link and are blocked from using the page directly.
+Main orchestration lives in `frontend/src/App.tsx`.
 
-## 9. Form Validation Flow
+Supporting areas:
 
-The web app validates inputs before submit and also when the user leaves a field.
-
-React-side forms:
-
-- admin book form
-- due-date inputs on borrowing actions
-
-Keycloak-hosted forms:
-
-- login
-- registration
-
-Behavior:
-
-- empty or invalid values trigger inline field errors
-- invalid due dates block borrowing
-- invalid book form data blocks create and update actions
-
-## 10. Frontend Structure Notes
-
-The UI is organized by page and focused components, with orchestration centered in `App.tsx`.
-
-Key supporting areas:
-
-- page components under `frontend/src/components`
-- request logic in `frontend/src/api.ts`
-- auth/token handling in `frontend/src/auth.ts`
-- shared validation in `frontend/src/lib/validation.ts`
-- shared formatting in `frontend/src/lib/format.ts`
-
-This keeps rendering, validation, and data-fetching concerns more clearly separated than the earlier single-dashboard version.
+- `frontend/src/auth.ts`
+  - Keycloak lifecycle and token refresh
+- `frontend/src/api.ts`
+  - REST request helpers
+- `frontend/src/components`
+  - page and panel rendering
+- `frontend/src/lib`
+  - formatting and validation helpers

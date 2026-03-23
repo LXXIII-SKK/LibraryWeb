@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 
 import com.example.library.branch.BranchService;
 import com.example.library.branch.LibraryBranch;
+import com.example.library.common.OperationalActivityEvent;
 import com.example.library.identity.AppRole;
 import com.example.library.identity.AppUser;
 import com.example.library.identity.AppUserRepository;
@@ -20,6 +21,7 @@ import jakarta.persistence.EntityNotFoundException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
 
 @Service
 @Transactional(readOnly = true)
@@ -38,6 +40,7 @@ public class NotificationService {
     private final AppUserRepository appUserRepository;
     private final CurrentUserService currentUserService;
     private final AuthorizationService authorizationService;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     public NotificationService(
             StaffNotificationRepository staffNotificationRepository,
@@ -45,13 +48,15 @@ public class NotificationService {
             BranchService branchService,
             AppUserRepository appUserRepository,
             CurrentUserService currentUserService,
-            AuthorizationService authorizationService) {
+            AuthorizationService authorizationService,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.staffNotificationRepository = staffNotificationRepository;
         this.staffNotificationReceiptRepository = staffNotificationReceiptRepository;
         this.branchService = branchService;
         this.appUserRepository = appUserRepository;
         this.currentUserService = currentUserService;
         this.authorizationService = authorizationService;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     public List<StaffNotificationResponse> listCurrentNotifications() {
@@ -65,8 +70,11 @@ public class NotificationService {
                         receipt -> receipt.getNotification().getId(),
                         Function.identity()));
 
-        return staffNotificationRepository.findAllByOrderByCreatedAtDesc().stream()
-                .filter(notification -> isVisibleTo(notification, currentUser))
+        return staffNotificationRepository.findVisibleToUserOrderByCreatedAtDesc(
+                        currentUser.id(),
+                        currentUser.role(),
+                        currentUser.branchId())
+                .stream()
                 .map(notification -> StaffNotificationResponse.from(
                         notification,
                         receiptsByNotificationId.get(notification.getId())))
@@ -84,15 +92,23 @@ public class NotificationService {
         }
 
         LibraryBranch branch = resolveRequestedBranch(request.branchId(), currentUser);
-        AppUser targetUser = resolveRequestedUser(request.targetUserId(), currentUser, request.targetRoles(), branch);
         AppUser creator = currentUserService.getCurrentUserEntity();
         StaffNotification notification = staffNotificationRepository.save(new StaffNotification(
                 request.title(),
                 request.message(),
                 creator,
-                targetUser,
+                null,
                 branch,
                 request.targetRoles()));
+        applicationEventPublisher.publishEvent(new OperationalActivityEvent(
+                currentUser.id(),
+                "NOTIFICATION_CREATED",
+                "%s created notification [%s] for roles=%s, branch=%s".formatted(
+                        currentUser.username(),
+                        notification.getTitle(),
+                        notification.getTargetRoles(),
+                        describeBranch(branch)),
+                notification.getCreatedAt()));
         return StaffNotificationResponse.from(notification, null);
     }
 
@@ -144,6 +160,14 @@ public class NotificationService {
                     Set.of(recipient.getRole())));
             createdAt = saved.getCreatedAt();
         }
+        applicationEventPublisher.publishEvent(new OperationalActivityEvent(
+                currentUser.id(),
+                "NOTIFICATION_CREATED",
+                "%s created discipline-review notifications for %s, notifying %s".formatted(
+                        currentUser.username(),
+                        targetUser.getUsername(),
+                        recipients.stream().map(AppUser::getUsername).toList()),
+                createdAt));
 
         return new DisciplineRequestNotificationResponse(
                 targetUser.getUsername(),
@@ -168,9 +192,21 @@ public class NotificationService {
         }
 
         AppUser user = currentUserService.getCurrentUserEntity();
-        StaffNotificationReceipt receipt = staffNotificationReceiptRepository.findByNotification_IdAndUser_Id(notificationId, user.getId())
-                .orElseGet(() -> staffNotificationReceiptRepository.save(
-                        new StaffNotificationReceipt(notification, user, Instant.now())));
+        StaffNotificationReceipt existingReceipt = staffNotificationReceiptRepository.findByNotification_IdAndUser_Id(notificationId, user.getId())
+                .orElse(null);
+        StaffNotificationReceipt receipt = existingReceipt != null
+                ? existingReceipt
+                : staffNotificationReceiptRepository.save(new StaffNotificationReceipt(notification, user, Instant.now()));
+        if (existingReceipt == null) {
+            applicationEventPublisher.publishEvent(new OperationalActivityEvent(
+                    currentUser.id(),
+                    "NOTIFICATION_READ",
+                    "%s marked notification %d as read [%s]".formatted(
+                            currentUser.username(),
+                            notification.getId(),
+                            notification.getTitle()),
+                    receipt.getReadAt()));
+        }
         return StaffNotificationResponse.from(notification, receipt);
     }
 
@@ -218,17 +254,6 @@ public class NotificationService {
         return StaffNotificationResponse.from(notification, null);
     }
 
-    private AppUser resolveRequestedUser(
-            Long targetUserId,
-            CurrentUser currentUser,
-            Set<AppRole> targetRoles,
-            LibraryBranch branch) {
-        if (targetUserId == null) {
-            return null;
-        }
-        throw new AccessDeniedException("Direct user-targeted notifications are reserved for system workflows");
-    }
-
     private List<AppUser> disciplineRequestRecipients(Long branchId) {
         Map<Long, AppUser> recipients = new LinkedHashMap<>();
         appUserRepository.findAllByBranch_IdAndRoleOrderByUsernameAsc(branchId, AppRole.BRANCH_MANAGER)
@@ -255,5 +280,12 @@ public class NotificationService {
             return null;
         }
         return value.trim();
+    }
+
+    private String describeBranch(LibraryBranch branch) {
+        if (branch == null) {
+            return "global";
+        }
+        return "%s (%s)".formatted(branch.getName(), branch.getCode());
     }
 }

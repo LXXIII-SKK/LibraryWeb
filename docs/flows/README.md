@@ -1,21 +1,21 @@
 # Project Flows Index
 
-This folder documents how each module and major website function works end-to-end.
+This folder documents how the current backend modules and browser routes behave end-to-end.
 
 ## Files
 
 - `01-system-overview.md`
-  - high-level request flow and module responsibilities
+  - high-level request flow, security entry points, and module responsibilities
 - `02-identity-and-access-flow.md`
-  - login, registration, role handling, and profile synchronization
+  - login, seeded-user relinking, member bootstrap rules, access management, and discipline workflows
 - `03-catalog-flow.md`
-  - catalog search, book detail lookup, and admin catalog operations
+  - public catalog browsing, filtering, detail lookup, and staff catalog maintenance
 - `04-circulation-flow.md`
-  - borrowing, returning, user history, and admin oversight
+  - borrowing, renewals, reservations, fines, policy-driven due dates, and operational circulation review
 - `05-activity-log-flow.md`
-  - audit logging, view tracking, and activity feeds
+  - audit/event logging, personal history, and branch/global operational review
 - `06-frontend-web-flows.md`
-  - current page structure and user-facing flows across the web app
+  - current page structure and route-level behavior across the React app
 
 ## Current Web Structure
 
@@ -23,12 +23,14 @@ This folder documents how each module and major website function works end-to-en
   - welcome and discovery page
 - `/books`
   - books workspace
+- `/upcoming`
+  - upcoming acquisitions workspace
 - `/books/:id`
   - book detail page
 - `/me`
-  - user account page
+  - member and account workspace
 - `/admin`
-  - admin-only management page
+  - permission-scoped operations workspace
 
 ## How To Read These Docs
 
@@ -36,9 +38,9 @@ Each document follows the same pattern:
 
 - purpose
 - actors
-- main endpoints
+- main endpoints or screens
 - step-by-step flow
 - business rules
-- affected tables
+- affected tables or modules
 
-Use these files as the functional documentation for the web application.
+Use these files as the detailed functional reference for the shipped application behavior.

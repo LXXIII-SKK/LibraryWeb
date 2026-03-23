@@ -26,7 +26,7 @@ export function AdminDashboardPanel({
   notifications,
   upcomingBooks,
 }: AdminDashboardPanelProps) {
-  const activeBorrowings = borrowings.filter((borrowing) => borrowing.status === "BORROWED").length;
+  const activeBorrowings = borrowings.filter((borrowing) => borrowing.status !== "RETURNED").length;
   const openReservations = reservations.filter((reservation) => reservation.status === "ACTIVE").length;
   const openFines = fines.filter((fine) => fine.status === "OPEN").length;
   const unreadNotifications = notifications.filter((notification) => !notification.readAt).length;

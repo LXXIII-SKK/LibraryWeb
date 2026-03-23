@@ -6,6 +6,7 @@ import com.example.library.branch.BranchService;
 import com.example.library.branch.LibraryBranch;
 import com.example.library.catalog.Book;
 import com.example.library.catalog.CatalogService;
+import com.example.library.common.OperationalActivityEvent;
 import com.example.library.circulation.BorrowStatus;
 import com.example.library.circulation.BorrowTransaction;
 import com.example.library.circulation.BorrowTransactionRepository;
@@ -13,6 +14,7 @@ import com.example.library.identity.AuthorizationService;
 import com.example.library.identity.CurrentUser;
 import com.example.library.identity.CurrentUserService;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,7 @@ public class InventoryService {
     private final CurrentUserService currentUserService;
     private final AuthorizationService authorizationService;
     private final BorrowTransactionRepository borrowTransactionRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     public InventoryService(
             BookHoldingRepository bookHoldingRepository,
@@ -36,7 +39,8 @@ public class InventoryService {
             LocationService locationService,
             CurrentUserService currentUserService,
             AuthorizationService authorizationService,
-            BorrowTransactionRepository borrowTransactionRepository) {
+            BorrowTransactionRepository borrowTransactionRepository,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.bookHoldingRepository = bookHoldingRepository;
         this.catalogService = catalogService;
         this.branchService = branchService;
@@ -44,6 +48,7 @@ public class InventoryService {
         this.currentUserService = currentUserService;
         this.authorizationService = authorizationService;
         this.borrowTransactionRepository = borrowTransactionRepository;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     public List<BookHoldingResponse> listManagedHoldings() {
@@ -115,12 +120,14 @@ public class InventoryService {
                 request.accessUrl(),
                 request.active()));
         synchronizeBookInventory(book);
+        publishHoldingActivity("created holding", null, holding);
         return BookHoldingResponse.from(holding);
     }
 
     @Transactional
     public BookHoldingResponse update(Long holdingId, BookHoldingUpsertRequest request) {
         BookHolding holding = findHolding(holdingId);
+        String beforeState = describe(holding);
         authorizationService.assertCanManageBranchInventory(holding.getBranch().getId());
         LibraryBranch branch = branchService.resolveBranch(request.branchId());
         authorizationService.assertCanManageBranchInventory(branch.getId());
@@ -135,6 +142,7 @@ public class InventoryService {
                 request.accessUrl(),
                 request.active());
         synchronizeBookInventory(holding.getBook());
+        publishHoldingActivity("updated holding", beforeState, holding);
         return BookHoldingResponse.from(holding);
     }
 
@@ -184,5 +192,28 @@ public class InventoryService {
             throw new IllegalArgumentException("Location must belong to the selected branch");
         }
         return location;
+    }
+
+    private void publishHoldingActivity(String action, String beforeState, BookHolding holding) {
+        CurrentUser actor = currentUserService.getCurrentUser();
+        String message = beforeState == null
+                ? "%s %s [%s]".formatted(actor.username(), action, describe(holding))
+                : "%s %s from [%s] to [%s]".formatted(actor.username(), action, beforeState, describe(holding));
+        applicationEventPublisher.publishEvent(new OperationalActivityEvent(
+                actor.id(),
+                "HOLDING_UPDATED",
+                message,
+                java.time.Instant.now()));
+    }
+
+    private String describe(BookHolding holding) {
+        return "book=%s, branch=%s, location=%s, format=%s, total=%d, available=%d, active=%s".formatted(
+                holding.getBook().getTitle(),
+                holding.getBranch() != null ? holding.getBranch().getCode() : "none",
+                holding.getLocation() != null ? holding.getLocation().getCode() : "none",
+                holding.getFormat(),
+                holding.getTotalQuantity(),
+                holding.getAvailableQuantity(),
+                holding.isActive());
     }
 }

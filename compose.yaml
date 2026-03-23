@@ -19,7 +19,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.1
     container_name: mini-library-keycloak
-    command: start-dev --import-realm
+    command: start-dev --import-realm --hostname=${KEYCLOAK_PUBLIC_URL:-http://localhost:8081} --http-relative-path=${KEYCLOAK_HTTP_RELATIVE_PATH:-/} --proxy-headers=xforwarded
     environment:
       KC_DB: dev-file
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
@@ -75,10 +75,15 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/library
       DB_USERNAME: library_app
       DB_PASSWORD: library_app_pw
-      KEYCLOAK_ISSUER_URI: http://localhost:8081/realms/library
-      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/library/protocol/openid-connect/certs
-      APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:-http://localhost:8081/realms/library}
+      KEYCLOAK_JWK_SET_URI: ${KEYCLOAK_JWK_SET_URI:-http://keycloak:8080/realms/library/protocol/openid-connect/certs}
+      KEYCLOAK_ADMIN_BASE_URL: ${KEYCLOAK_ADMIN_BASE_URL:-http://keycloak:8080${KEYCLOAK_HTTP_RELATIVE_PATH:-/}}
+      KEYCLOAK_ADMIN_REALM: ${KEYCLOAK_ADMIN_REALM:-library}
+      KEYCLOAK_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
       APP_ENV: docker
     ports:
       - "8080:8080"
@@ -95,15 +100,19 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: http://localhost:8080
-        VITE_KEYCLOAK_URL: http://localhost:8081
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL-http://localhost:8080}
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://localhost:8081}
         VITE_KEYCLOAK_REALM: library
         VITE_KEYCLOAK_CLIENT_ID: library-web
     container_name: mini-library-frontend
+    environment:
+      NGINX_ENVSUBST_FILTER: KEYCLOAK_PROXY_PATH
+      KEYCLOAK_PROXY_PATH: ${KEYCLOAK_PROXY_PATH-}
     ports:
       - "3000:80"
     depends_on:
       - backend
+      - keycloak
 
 volumes:
   pgdata:

@@ -56,6 +56,7 @@
   ],
   "users": [
     {
+      "id": "00000000-0000-4000-8000-000000000001",
       "username": "admin",
       "enabled": true,
       "firstName": "Admin",
@@ -74,6 +75,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-000000000002",
       "username": "reader",
       "enabled": true,
       "firstName": "Riley",
@@ -92,6 +94,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-000000000003",
       "username": "alina.reader",
       "enabled": true,
       "firstName": "Alina",
@@ -110,6 +113,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-000000000004",
       "username": "hoang.nguyen",
       "enabled": true,
       "firstName": "Hoang",
@@ -128,6 +132,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-000000000005",
       "username": "maya.tran",
       "enabled": true,
       "firstName": "Maya",
@@ -146,6 +151,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-000000000006",
       "username": "branch.librarian",
       "enabled": true,
       "firstName": "Branch",
@@ -164,6 +170,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-000000000007",
       "username": "branch.manager",
       "enabled": true,
       "firstName": "Branch",
@@ -182,6 +189,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-000000000008",
       "username": "compliance.auditor",
       "enabled": true,
       "firstName": "Compliance",
@@ -200,6 +208,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-000000000009",
       "username": "east.librarian",
       "enabled": true,
       "firstName": "East",
@@ -218,6 +227,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-00000000000a",
       "username": "east.manager",
       "enabled": true,
       "firstName": "East",
@@ -236,6 +246,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-00000000000b",
       "username": "hq.librarian",
       "enabled": true,
       "firstName": "Headquarters",
@@ -254,6 +265,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-00000000000c",
       "username": "hq.manager",
       "enabled": true,
       "firstName": "Headquarters",
@@ -272,6 +284,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-00000000000d",
       "username": "central.member",
       "enabled": true,
       "firstName": "Central",
@@ -290,6 +303,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-00000000000e",
       "username": "east.member",
       "enabled": true,
       "firstName": "East",
@@ -308,6 +322,7 @@
       ]
     },
     {
+      "id": "00000000-0000-4000-8000-00000000000f",
       "username": "hq.member",
       "enabled": true,
       "firstName": "Headquarters",

@@ -1,59 +1,224 @@
-import { pluralize } from "../lib/format";
-import type { DiscoveryBook } from "../types";
+import { useEffect, useState } from "react";
+
+import { formatDateTime, pluralize } from "../lib/format";
+import type { DiscoveryBook, UpcomingBook } from "../types";
 import type { WelcomePageProps } from "../view-models";
 import { BookCoverArt } from "./BookCoverArt";
+import { BookTagChips } from "./BookTagChips";
+import { PagedGridSection } from "./PagedGridSection";
 
-function SpotlightColumn({
+function RecommendationShowcase({
+  books,
+  onOpenBook,
+}: {
+  books: DiscoveryBook[];
+  onOpenBook: (bookId: number) => void;
+}) {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    if (books.length === 0) {
+      setActiveIndex(0);
+      return;
+    }
+    if (activeIndex >= books.length) {
+      setActiveIndex(0);
+    }
+  }, [activeIndex, books.length]);
+
+  useEffect(() => {
+    if (books.length <= 1) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setActiveIndex((current) => (current + 1) % books.length);
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [books.length]);
+
+  if (books.length === 0) {
+    return (
+      <aside className="hero-showcase">
+        <div className="showcase-card showcase-card-placeholder">
+          <span className="showcase-badge">* 00</span>
+          <div className="showcase-copy">
+            <p className="showcase-title-static">No live recommendations yet.</p>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
+  const activeBook = books[activeIndex];
+  const showcaseStyle = activeBook.coverImageUrl
+    ? {
+        backgroundImage: `linear-gradient(180deg, rgba(9, 16, 24, 0.04) 0%, rgba(9, 16, 24, 0.54) 56%, rgba(9, 16, 24, 0.88) 100%), url(${activeBook.coverImageUrl})`,
+      }
+    : undefined;
+
+  function goToSlide(index: number) {
+    setActiveIndex(index);
+  }
+
+  function goToPrevious() {
+    setActiveIndex((current) => (current - 1 + books.length) % books.length);
+  }
+
+  function goToNext() {
+    setActiveIndex((current) => (current + 1) % books.length);
+  }
+
+  return (
+    <aside className="hero-showcase">
+      <article
+        className={`showcase-card${activeBook.coverImageUrl ? "" : " showcase-card-placeholder"}`}
+        key={activeBook.id}
+        style={showcaseStyle}
+      >
+        <span className="showcase-badge">* {String(activeIndex + 1).padStart(2, "0")}</span>
+
+        <button type="button" className="showcase-arrow showcase-arrow-left" onClick={goToPrevious} aria-label="Previous recommendation">
+          {"<"}
+        </button>
+        <button type="button" className="showcase-arrow showcase-arrow-right" onClick={goToNext} aria-label="Next recommendation">
+          {">"}
+        </button>
+
+        <div className="showcase-copy">
+          <div className="showcase-symbols">
+            <span className="showcase-symbol">
+              <strong>@</strong>
+              <span title={activeBook.author}>{activeBook.author}</span>
+            </span>
+            <span className="showcase-symbol">
+              <strong>#</strong>
+              <span>{activeBook.availableQuantity}</span>
+            </span>
+          </div>
+
+          <button type="button" className="link-button title-link showcase-title" onClick={() => onOpenBook(activeBook.id)}>
+            {activeBook.title}
+          </button>
+        </div>
+
+        {books.length > 1 ? (
+          <div className="showcase-indicators" aria-label="Recommendation slides">
+            {books.map((book, index) => (
+              <button
+                key={book.id}
+                type="button"
+                className={`showcase-indicator${index === activeIndex ? " showcase-indicator-active" : ""}`}
+                onClick={() => goToSlide(index)}
+                aria-label={`Open recommendation ${index + 1}`}
+                aria-pressed={index === activeIndex}
+              />
+            ))}
+          </div>
+        ) : null}
+      </article>
+    </aside>
+  );
+}
+
+function DiscoveryPageSection({
   label,
   title,
+  description,
   books,
   onOpenBook,
 }: {
   label: string;
   title: string;
+  description: string;
   books: DiscoveryBook[];
   onOpenBook: (bookId: number) => void;
 }) {
   return (
-    <section className="surface">
-      <div className="section-heading">
-        <div>
-          <p className="section-label">{label}</p>
-          <h2>{title}</h2>
-        </div>
-      </div>
-      <div className="spotlight-stack">
-        {books.map((book) => (
-          <article key={book.id} className="catalog-card spotlight-card">
-            <div className="spotlight-head">
-              <BookCoverArt title={book.title} coverImageUrl={book.coverImageUrl} className="spotlight-cover" />
-              <div className="catalog-card-copy">
-                <button className="link-button title-link" onClick={() => onOpenBook(book.id)}>
-                  {book.title}
-                </button>
-                <p>{book.author}</p>
-              </div>
-            </div>
-            <p className="spotlight-note">{book.spotlight}</p>
-            <div className="catalog-actions">
-              <span className="status-chip">{pluralize(book.availableQuantity, "copy", "copies")} available</span>
-              <button className="button-secondary" onClick={() => onOpenBook(book.id)}>
-                View book
+    <PagedGridSection
+      label={label}
+      title={title}
+      description={description}
+      items={books}
+      emptyMessage="No movement yet for this week."
+      getKey={(book) => book.id}
+      renderItem={(book) => (
+        <article className="catalog-card spotlight-card">
+          <div className="spotlight-head">
+            <BookCoverArt title={book.title} coverImageUrl={book.coverImageUrl} className="spotlight-cover" />
+            <div className="catalog-card-copy">
+              <button type="button" className="link-button title-link" onClick={() => onOpenBook(book.id)}>
+                {book.title}
               </button>
+              <p>{book.author}</p>
             </div>
-          </article>
-        ))}
-      </div>
-      {books.length === 0 ? <p className="empty-state">No movement yet for this week.</p> : null}
-    </section>
+          </div>
+          <p className="spotlight-note">{book.spotlight}</p>
+          <div className="catalog-actions">
+            <span className="status-chip">{pluralize(book.availableQuantity, "copy", "copies")} available</span>
+            <button type="button" className="button-secondary" onClick={() => onOpenBook(book.id)}>
+              View book
+            </button>
+          </div>
+        </article>
+      )}
+    />
+  );
+}
+
+function UpcomingPageSection({
+  books,
+  onNavigateUpcoming,
+}: {
+  books: UpcomingBook[];
+  onNavigateUpcoming: () => void;
+}) {
+  return (
+    <PagedGridSection
+      label="Upcoming"
+      title="Books arriving soon"
+      description="Upcoming arrivals now sit at the end of the home page and use the same 4-card paging rhythm as the rest of discovery."
+      items={books}
+      emptyMessage="No upcoming arrivals are being tracked yet."
+      getKey={(book) => book.id}
+      headerAction={
+        <button type="button" className="button-secondary" onClick={onNavigateUpcoming}>
+          Open upcoming page
+        </button>
+      }
+      renderItem={(book) => (
+        <article className="catalog-card upcoming-card">
+          <div className="catalog-card-head">
+            <div className="catalog-card-copy">
+              <h3>{book.title}</h3>
+              <p>{book.author}</p>
+            </div>
+            <span className="status-chip">{formatDateTime(book.expectedAt)}</span>
+          </div>
+          <p>{book.summary ?? "Arrival planning is in progress."}</p>
+          <BookTagChips tags={book.tags} className="tag-strip compact-tags" />
+          <dl className="catalog-meta">
+            <div>
+              <dt>Branch</dt>
+              <dd>{book.branch?.name ?? "Shared acquisition"}</dd>
+            </div>
+            <div>
+              <dt>Category</dt>
+              <dd>{book.category ?? "General"}</dd>
+            </div>
+            <div>
+              <dt>ISBN</dt>
+              <dd>{book.isbn ?? "Not assigned"}</dd>
+            </div>
+          </dl>
+        </article>
+      )}
+    />
   );
 }
 
 export function WelcomePage({
-  signedIn,
-  canAccessOperations,
-  username,
-  roleLabel,
   inventoryStats,
   myBorrowingStats,
   recommendations,
@@ -61,11 +226,7 @@ export function WelcomePage({
   mostViewed,
   upcomingBooks,
   onOpenBook,
-  onNavigateBooks,
-  onNavigateAccount,
-  onLogin,
-  onRegister,
-  onLogout,
+  onNavigateUpcoming,
 }: WelcomePageProps) {
   return (
     <section className="page-stack">
@@ -97,82 +258,26 @@ export function WelcomePage({
           </div>
         </div>
 
-        <aside className="hero-aside">
-          <div className="identity-card">
-            <span className="identity-label">Current session</span>
-            <strong>{signedIn ? username : "Guest session"}</strong>
-            <p>
-              {signedIn
-                ? canAccessOperations
-                  ? `${roleLabel} tools are available from the operations workspace.`
-                  : "Borrow books, review due dates, and manage returns from your personal page."
-                : "Sign in to borrow books, record views, and manage your lending activity."}
-            </p>
-            <div className="hero-actions">
-              <button onClick={onNavigateBooks}>Browse books</button>
-              <button className="button-secondary" onClick={onNavigateAccount}>
-                My page
-              </button>
-            </div>
-          </div>
-          <div className="hero-actions">
-            {signedIn ? (
-              <button onClick={onLogout}>Logout</button>
-            ) : (
-              <>
-                <button onClick={onLogin}>Login</button>
-                <button className="button-secondary" onClick={onRegister}>
-                  Register
-                </button>
-              </>
-            )}
-          </div>
-        </aside>
+        <RecommendationShowcase books={recommendations} onOpenBook={onOpenBook} />
       </section>
 
-      <SpotlightColumn
-        label="Recommendations"
-        title="Recommended right now"
-        books={recommendations}
+      <DiscoveryPageSection
+        label="Most Borrowed"
+        title="Most borrowed this week"
+        description="Borrowing movement is now shown in paged 4-card rows instead of a single vertical stack."
+        books={mostBorrowed}
         onOpenBook={onOpenBook}
       />
 
-      <section className="surface">
-        <div className="section-heading">
-          <div>
-            <p className="section-label">Upcoming</p>
-            <h2>Books arriving soon</h2>
-          </div>
-        </div>
-        <div className="stack-list">
-          {upcomingBooks.map((book) => (
-            <article key={book.id} className="list-card">
-              <div>
-                <strong>{book.title}</strong>
-                <p>{book.author}</p>
-                <p>{book.summary ?? "Arrival planning is in progress."}</p>
-              </div>
-              <span className="status-chip">{new Date(book.expectedAt).toLocaleDateString()}</span>
-            </article>
-          ))}
-        </div>
-        {upcomingBooks.length === 0 ? <p className="empty-state">No upcoming arrivals are being tracked yet.</p> : null}
-      </section>
+      <DiscoveryPageSection
+        label="Most Viewed"
+        title="Most viewed this week"
+        description="View activity uses the same paged layout and only counts one signed-in view per reader and book until the next reset."
+        books={mostViewed}
+        onOpenBook={onOpenBook}
+      />
 
-      <section className="spotlight-grid">
-        <SpotlightColumn
-          label="Most Borrowed"
-          title="Most borrowed this week"
-          books={mostBorrowed}
-          onOpenBook={onOpenBook}
-        />
-        <SpotlightColumn
-          label="Most Viewed"
-          title="Most viewed this week"
-          books={mostViewed}
-          onOpenBook={onOpenBook}
-        />
-      </section>
+      <UpcomingPageSection books={upcomingBooks} onNavigateUpcoming={onNavigateUpcoming} />
     </section>
   );
 }

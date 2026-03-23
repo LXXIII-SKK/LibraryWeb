@@ -6,10 +6,12 @@ type ReservationsPanelProps = {
   label: string;
   reservations: Reservation[];
   canManage: boolean;
+  canCheckoutReadyHolds: boolean;
   onPrepare?: (reservationId: number) => void;
   onReady?: (reservationId: number) => void;
   onExpire?: (reservationId: number) => void;
   onNoShow?: (reservationId: number) => void;
+  onCheckoutReadyHold?: (reservationId: number, userId: number, bookId: number, holdingId: number | null) => void;
 };
 
 export function ReservationsPanel({
@@ -17,10 +19,12 @@ export function ReservationsPanel({
   label,
   reservations,
   canManage,
+  canCheckoutReadyHolds,
   onPrepare,
   onReady,
   onExpire,
   onNoShow,
+  onCheckoutReadyHold,
 }: ReservationsPanelProps) {
   return (
     <div className="admin-panel admin-panel-wide">
@@ -54,6 +58,22 @@ export function ReservationsPanel({
                   <span className={`pill pill-${reservation.status.toLowerCase()}`}>{reservation.status}</span>
                 </td>
                 <td className="table-actions">
+                  {canCheckoutReadyHolds &&
+                  reservation.status === "READY_FOR_PICKUP" &&
+                  onCheckoutReadyHold ? (
+                    <button
+                      onClick={() =>
+                        onCheckoutReadyHold(
+                          reservation.id,
+                          reservation.userId,
+                          reservation.bookId,
+                          reservation.reservedHoldingId,
+                        )
+                      }
+                    >
+                      Checkout ready hold
+                    </button>
+                  ) : null}
                   {canManage && reservation.status === "ACTIVE" && onPrepare ? (
                     <button className="button-secondary" onClick={() => onPrepare(reservation.id)}>
                       Prepare

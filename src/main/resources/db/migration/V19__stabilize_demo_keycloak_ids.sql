@@ -1,0 +1,15 @@
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-000000000001' where username = 'admin';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-000000000002' where username = 'reader';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-000000000003' where username = 'alina.reader';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-000000000004' where username = 'hoang.nguyen';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-000000000005' where username = 'maya.tran';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-000000000006' where username = 'branch.librarian';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-000000000007' where username = 'branch.manager';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-000000000008' where username = 'compliance.auditor';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-000000000009' where username = 'east.librarian';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-00000000000a' where username = 'east.manager';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-00000000000b' where username = 'hq.librarian';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-00000000000c' where username = 'hq.manager';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-00000000000d' where username = 'central.member';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-00000000000e' where username = 'east.member';
+update app_user set keycloak_user_id = '00000000-0000-4000-8000-00000000000f' where username = 'hq.member';

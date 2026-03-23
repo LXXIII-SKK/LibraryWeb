@@ -35,15 +35,18 @@ import {
   fetchPublicBranches,
   fetchUpcomingBooks,
   fetchReservations,
+  fetchStaffRegistrationOptions,
   fetchUserDisciplineHistory,
   fetchUser,
   fetchUserAccessOptions,
   fetchUsers,
   markNotificationRead,
+  recordBorrowingException,
   markReservationNoShow,
   markReservationReady,
   prepareReservation,
   recordBookView,
+  registerStaff,
   renewBorrowing,
   returnBook,
   staffCheckoutBook,
@@ -64,6 +67,7 @@ import { BookDetailPage } from "./components/BookDetailPage";
 import { BooksWorkspacePage } from "./components/BooksWorkspacePage";
 import { NavigationBar } from "./components/NavigationBar";
 import { NotificationTray } from "./components/NotificationTray";
+import { UpcomingWorkspacePage } from "./components/UpcomingWorkspacePage";
 import { UserHubPage } from "./components/UserHubPage";
 import { WelcomePage } from "./components/WelcomePage";
 import { initAuth, login, logout, manageAccount, register, username } from "./auth";
@@ -74,6 +78,7 @@ import type {
   Book,
   BookHolding,
   BookFilters,
+  BorrowingExceptionAction,
   DigitalAccessLink,
   LibraryBranch,
   LibraryLocation,
@@ -101,6 +106,7 @@ import type {
   Message,
   NotificationFormState,
   PolicyFormState,
+  StaffRegistrationFormState,
   UpcomingBookFormState,
   DisciplineRequestFormState,
 } from "./view-models";
@@ -167,9 +173,23 @@ const emptyDisciplineRequestForm: DisciplineRequestFormState = {
   note: "",
 };
 
+function createStaffRegistrationForm(options: AccessOptions): StaffRegistrationFormState {
+  return {
+    username: "",
+    email: "",
+    password: "",
+    role: options.roles[0] ?? "LIBRARIAN",
+    accountStatus: options.accountStatuses[0] ?? "ACTIVE",
+    branchId: "",
+    homeBranchId: "",
+    requirePasswordChange: true,
+  };
+}
+
 type RouteState =
   | { name: "home" }
   | { name: "books" }
+  | { name: "upcoming" }
   | { name: "account" }
   | { name: "admin" }
   | { name: "book"; bookId: number };
@@ -182,6 +202,10 @@ function resolveRoute(pathname: string): RouteState {
 
   if (pathname === "/books") {
     return { name: "books" };
+  }
+
+  if (pathname === "/upcoming") {
+    return { name: "upcoming" };
   }
 
   if (pathname === "/me") {
@@ -284,6 +308,7 @@ function toDateTimeInput(value: string | null | undefined) {
 export default function App() {
   const [ready, setReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [floatingNavVisible, setFloatingNavVisible] = useState(true);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -310,6 +335,8 @@ export default function App() {
   const [disciplineHistory, setDisciplineHistory] = useState<UserDisciplineRecord[]>([]);
   const [accessOptions, setAccessOptions] = useState<AccessOptions | null>(null);
   const [accessForm, setAccessForm] = useState<AccessFormState | null>(null);
+  const [staffRegistrationOptions, setStaffRegistrationOptions] = useState<AccessOptions | null>(null);
+  const [staffRegistrationForm, setStaffRegistrationForm] = useState<StaffRegistrationFormState | null>(null);
   const [policy, setPolicy] = useState<LibraryPolicy | null>(null);
   const [policyForm, setPolicyForm] = useState<PolicyFormState | null>(null);
   const [branches, setBranches] = useState<LibraryBranch[]>([]);
@@ -349,7 +376,10 @@ export default function App() {
     permissionSet.has("REPORT_GLOBAL_READ") ||
     (profile?.role === "BRANCH_MANAGER" && permissionSet.has("REPORT_BRANCH_READ"));
   const canReturnOwnBorrowings = permissionSet.has("LOAN_SELF_RETURN");
+  const canStaffCheckout = permissionSet.has("LOAN_CREATE_BRANCH") || profile?.role === "ADMIN";
   const canForceReturn = permissionSet.has("LOAN_CLOSE_BRANCH") || profile?.role === "ADMIN";
+  const canOverrideBorrowings = permissionSet.has("LOAN_OVERRIDE_BRANCH") || profile?.role === "ADMIN";
+  const canManageBorrowingExceptions = canForceReturn;
   const canRenewOwnBorrowings =
     Boolean(
       signedIn &&
@@ -386,6 +416,8 @@ export default function App() {
     permissionSet.has("USER_MANAGE_GLOBAL") ||
     permissionSet.has("MEMBER_VERIFY_BRANCH") ||
     permissionSet.has("APPROVAL_BRANCH");
+  const canRegisterStaff =
+    profile?.role === "ADMIN" && profile.accountStatus === "ACTIVE" && permissionSet.has("USER_MANAGE_GLOBAL");
   const canReadPolicies = permissionSet.has("POLICY_READ") || permissionSet.has("POLICY_MANAGE_GLOBAL");
   const canManagePolicies = permissionSet.has("POLICY_MANAGE_GLOBAL");
   const canManageBranches = permissionSet.has("BRANCH_MANAGE_GLOBAL");
@@ -425,7 +457,7 @@ export default function App() {
   }, [books]);
 
   const myBorrowingStats = useMemo<BorrowingStats>(() => {
-    const active = borrowings.filter((item) => item.status === "BORROWED").length;
+    const active = borrowings.filter((item) => item.status !== "RETURNED").length;
     const returned = borrowings.filter((item) => item.status === "RETURNED").length;
     return { active, returned };
   }, [borrowings]);
@@ -448,6 +480,28 @@ export default function App() {
     const handlePopState = () => setRoute(resolveRoute(window.location.pathname));
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    let showTimer: number | undefined;
+
+    const handleScroll = () => {
+      if (showTimer !== undefined) {
+        window.clearTimeout(showTimer);
+      }
+
+      setFloatingNavVisible(false);
+      showTimer = window.setTimeout(() => setFloatingNavVisible(true), 220);
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      if (showTimer !== undefined) {
+        window.clearTimeout(showTimer);
+      }
+      window.removeEventListener("scroll", handleScroll);
+    };
   }, []);
 
   useEffect(() => {
@@ -480,18 +534,40 @@ export default function App() {
       return;
     }
 
+    let cancelled = false;
+
     void (async () => {
       try {
         const book = await fetchBook(route.bookId);
+        if (cancelled) {
+          return;
+        }
         setSelectedBook(book);
+
         if (signedIn && profile && profile.role !== "AUDITOR") {
-          await recordBookView(route.bookId);
+          const viewRecord = await recordBookView(route.bookId);
+          if (cancelled) {
+            return;
+          }
+
+          setBooks((current) =>
+            current.map((entry) => (entry.id === route.bookId ? { ...entry, viewCount: viewRecord.viewCount } : entry)),
+          );
+          setSelectedBook((current) =>
+            current && current.id === route.bookId ? { ...current, viewCount: viewRecord.viewCount } : current,
+          );
         }
       } catch (error) {
-        showError(error);
+        if (!cancelled) {
+          showError(error);
+        }
       }
     })();
-  }, [route, signedIn, profile?.role]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [route, signedIn, profile?.id, profile?.role]);
 
   useEffect(() => {
     if (!canReadUsers) {
@@ -597,6 +673,8 @@ export default function App() {
     setDisciplineHistory([]);
     setAccessForm(null);
     setAccessOptions(null);
+    setStaffRegistrationForm(null);
+    setStaffRegistrationOptions(null);
     setPolicy(null);
     setBranches([]);
     setPublicBranches([]);
@@ -645,6 +723,10 @@ export default function App() {
         nextPermissions.has("USER_READ_GLOBAL") ||
         nextPermissions.has("USER_MANAGE_GLOBAL") ||
         nextPermissions.has("MEMBER_READ_BRANCH");
+      const nextCanRegisterStaff =
+        nextProfile.role === "ADMIN" &&
+        nextProfile.accountStatus === "ACTIVE" &&
+        nextPermissions.has("USER_MANAGE_GLOBAL");
       const nextCanReadPolicies =
         nextPermissions.has("POLICY_READ") || nextPermissions.has("POLICY_MANAGE_GLOBAL");
       const nextCanManageBranches = nextPermissions.has("BRANCH_MANAGE_GLOBAL");
@@ -663,6 +745,7 @@ export default function App() {
         nextFines,
         nextAllFines,
         nextUsers,
+        nextStaffRegistrationOptions,
         nextPolicy,
         nextBranches,
         nextHoldings,
@@ -678,6 +761,7 @@ export default function App() {
         nextCanReadOwnFines ? fetchFines() : Promise.resolve([]),
         nextCanReadOperationalFines ? fetchAllFines() : Promise.resolve([]),
         nextCanReadUsers ? fetchUsers() : Promise.resolve([]),
+        nextCanRegisterStaff ? fetchStaffRegistrationOptions() : Promise.resolve(null),
         nextCanReadPolicies ? fetchPolicy() : Promise.resolve(null),
         nextCanReadBranches ? fetchBranches() : Promise.resolve([]),
         nextCanManageInventory ? fetchInventoryHoldings() : Promise.resolve([]),
@@ -695,6 +779,10 @@ export default function App() {
       setFines(nextFines);
       setAllFines(nextAllFines);
       setUsers(nextUsers);
+      setStaffRegistrationOptions(nextStaffRegistrationOptions);
+      setStaffRegistrationForm(
+        nextStaffRegistrationOptions ? createStaffRegistrationForm(nextStaffRegistrationOptions) : null,
+      );
       setPolicy(nextPolicy);
       setBranches(nextBranches);
       setHoldings(nextHoldings);
@@ -749,6 +837,13 @@ export default function App() {
 
   function updateAccessField<K extends keyof AccessFormState>(field: K, value: AccessFormState[K]) {
     setAccessForm((current) => (current ? { ...current, [field]: value } : current));
+  }
+
+  function updateStaffRegistrationField<K extends keyof StaffRegistrationFormState>(
+    field: K,
+    value: StaffRegistrationFormState[K],
+  ) {
+    setStaffRegistrationForm((current) => (current ? { ...current, [field]: value } : current));
   }
 
   function updateBranchFormField<K extends keyof BranchFormState>(field: K, value: BranchFormState[K]) {
@@ -933,6 +1028,41 @@ export default function App() {
     }
   }
 
+  async function onOverrideBorrowing(transactionId: number, dueAt: string | null, reason: string) {
+    try {
+      let normalizedDueAt: string | null = null;
+      if (dueAt?.trim()) {
+        const parsedDueAt = new Date(dueAt);
+        if (Number.isNaN(parsedDueAt.getTime())) {
+          showError(new Error("Override due date is invalid."));
+          return;
+        }
+        normalizedDueAt = parsedDueAt.toISOString();
+      }
+      if (normalizedDueAt && Number.isNaN(new Date(normalizedDueAt).getTime())) {
+        showError(new Error("Override due date is invalid."));
+        return;
+      }
+      await renewBorrowing(transactionId, normalizedDueAt, reason);
+      await refreshAfterMutation("Borrowing override applied successfully.");
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  async function onRecordBorrowingException(
+    transactionId: number,
+    action: BorrowingExceptionAction,
+    note: string,
+  ) {
+    try {
+      await recordBorrowingException(transactionId, action, note);
+      await refreshAfterMutation("Borrowing exception recorded successfully.");
+    } catch (error) {
+      showError(error);
+    }
+  }
+
   async function onSaveAccess() {
     if (selectedUserId === null || !accessForm) {
       return;
@@ -947,6 +1077,44 @@ export default function App() {
         homeBranchId: parseOptionalNumber(accessForm.homeBranchId),
       });
       await refreshAfterMutation("Access updated successfully.");
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  async function onRegisterStaff() {
+    if (!staffRegistrationForm) {
+      return;
+    }
+
+    if (!staffRegistrationForm.username.trim() || !staffRegistrationForm.email.trim() || !staffRegistrationForm.password) {
+      showError(new Error("Username, email, and password are required for staff registration."));
+      return;
+    }
+
+    const branchAssignmentRequired = ["LIBRARIAN", "BRANCH_MANAGER"].includes(staffRegistrationForm.role);
+    if (branchAssignmentRequired && parseOptionalNumber(staffRegistrationForm.branchId) === null) {
+      showError(new Error("Select a branch for librarian and branch manager accounts."));
+      return;
+    }
+
+    try {
+      const registeredUser = await registerStaff({
+        username: staffRegistrationForm.username.trim(),
+        email: staffRegistrationForm.email.trim(),
+        password: staffRegistrationForm.password,
+        role: staffRegistrationForm.role,
+        accountStatus: staffRegistrationForm.accountStatus,
+        branchId: parseOptionalNumber(staffRegistrationForm.branchId),
+        homeBranchId: parseOptionalNumber(staffRegistrationForm.homeBranchId),
+        requirePasswordChange: staffRegistrationForm.requirePasswordChange,
+      });
+      setStaffRegistrationForm(
+        staffRegistrationOptions ? createStaffRegistrationForm(staffRegistrationOptions) : staffRegistrationForm,
+      );
+      showSuccess("Staff account registered successfully.");
+      await Promise.all([loadPublicData(), loadPrivateData()]);
+      setSelectedUserId(registeredUser.id);
     } catch (error) {
       showError(error);
     }
@@ -1325,6 +1493,7 @@ export default function App() {
       {message ? <div className={`banner banner-${message.tone}`}>{message.text}</div> : null}
 
       <NavigationBar
+        visible={floatingNavVisible}
         signedIn={signedIn}
         canAccessOperations={canAccessOperations}
         canViewNotifications={canReadStaffNotifications}
@@ -1335,6 +1504,7 @@ export default function App() {
         notificationsOpen={notificationsOpen}
         onNavigateHome={() => navigateTo("/")}
         onNavigateBooks={() => navigateTo("/books")}
+        onNavigateUpcoming={() => navigateTo("/upcoming")}
         onNavigateAccount={() => navigateTo("/me")}
         onNavigateAdmin={() => navigateTo("/admin")}
         onToggleNotifications={() => setNotificationsOpen((current) => !current)}
@@ -1351,10 +1521,6 @@ export default function App() {
 
       {route.name === "home" ? (
         <WelcomePage
-          signedIn={signedIn}
-          canAccessOperations={canAccessOperations}
-          username={username()}
-          roleLabel={roleLabel}
           inventoryStats={inventoryStats}
           myBorrowingStats={myBorrowingStats}
           recommendations={discovery.recommendations}
@@ -1362,11 +1528,7 @@ export default function App() {
           mostViewed={discovery.mostViewedThisWeek}
           upcomingBooks={upcomingBooks}
           onOpenBook={(bookId) => navigateTo(`/books/${bookId}`)}
-          onNavigateBooks={() => navigateTo("/books")}
-          onNavigateAccount={() => navigateTo("/me")}
-          onLogin={() => void login()}
-          onRegister={() => void register()}
-          onLogout={() => void logout()}
+          onNavigateUpcoming={() => navigateTo("/upcoming")}
         />
       ) : route.name === "books" ? (
         <BooksWorkspacePage
@@ -1380,7 +1542,6 @@ export default function App() {
           categories={filters.categories}
           tags={filters.tags}
           books={books}
-          upcomingBooks={upcomingBooks}
           onQueryChange={setQuery}
           onCategoryChange={setCategoryFilter}
           onTagChange={setTagFilter}
@@ -1388,7 +1549,10 @@ export default function App() {
           onReserve={(bookId) => void onReserve(bookId)}
           onStartEdit={startEditBook}
           onOpenBook={(bookId) => navigateTo(`/books/${bookId}`)}
+          onNavigateUpcoming={() => navigateTo("/upcoming")}
         />
+      ) : route.name === "upcoming" ? (
+        <UpcomingWorkspacePage upcomingBooks={upcomingBooks} onNavigateBooks={() => navigateTo("/books")} />
       ) : route.name === "account" ? (
         <UserHubPage
           signedIn={signedIn}
@@ -1407,6 +1571,7 @@ export default function App() {
           stats={myBorrowingStats}
           onLogin={() => void login()}
           onRegister={() => void register()}
+          onNavigateBooks={() => navigateTo("/books")}
           onManageAccount={() => void manageAccount()}
           onOpenBook={(bookId) => navigateTo(`/books/${bookId}`)}
           onReturn={(transactionId) => void onReturn(transactionId)}
@@ -1427,13 +1592,17 @@ export default function App() {
             canSendNotifications={canSendStaffNotifications}
             canRequestDisciplineReview={canRequestDisciplineReview}
             canSeeBorrowings={canReadOperationalBorrowings}
+            canStaffCheckout={Boolean(canStaffCheckout)}
             canForceReturn={Boolean(canForceReturn)}
+            canOverrideBorrowings={Boolean(canOverrideBorrowings)}
+            canManageBorrowingExceptions={Boolean(canManageBorrowingExceptions)}
             canReadReservations={canReadOperationalReservations}
             canManageReservations={Boolean(canManageOperationalReservations)}
             canReadFines={canReadOperationalFines}
             canWaiveFines={Boolean(canWaiveOperationalFines)}
             canReadUsers={canReadUsers}
             canManageUsers={canManageUsers}
+            canRegisterStaff={Boolean(canRegisterStaff)}
             canReadPolicies={canReadPolicies}
             canManagePolicies={canManagePolicies}
             canManageBranches={Boolean(canManageBranches)}
@@ -1465,6 +1634,8 @@ export default function App() {
             disciplineHistory={disciplineHistory}
             accessOptions={accessOptions}
             accessForm={accessForm}
+            staffRegistrationOptions={staffRegistrationOptions}
+            staffRegistrationForm={staffRegistrationForm}
             policy={policy}
             policyForm={policyForm}
             coverPreviewUrl={bookForm.coverImageUrl}
@@ -1496,6 +1667,10 @@ export default function App() {
             onStaffCheckout={(userId, bookId, holdingId, reservationId) =>
               void onStaffCheckout(userId, bookId, holdingId ?? null, reservationId ?? null)
             }
+            onOverrideBorrowing={(transactionId, dueAt, reason) => void onOverrideBorrowing(transactionId, dueAt, reason)}
+            onRecordBorrowingException={(transactionId, action, note) =>
+              void onRecordBorrowingException(transactionId, action, note)
+            }
             onPrepareReservation={(reservationId, holdingId) => void onPrepareReservation(reservationId, holdingId ?? null)}
             onReadyReservation={(reservationId) => void onReadyReservation(reservationId)}
             onExpireReservation={(reservationId) => void onExpireReservation(reservationId)}
@@ -1504,6 +1679,8 @@ export default function App() {
             onSelectUser={setSelectedUserId}
             onUpdateAccessField={updateAccessField}
             onSaveAccess={() => void onSaveAccess()}
+            onUpdateStaffRegistrationField={updateStaffRegistrationField}
+            onRegisterStaff={() => void onRegisterStaff()}
             onApplyUserDiscipline={(userId, action, reason, note) =>
               void onApplyUserDiscipline(userId, action, reason, note)
             }

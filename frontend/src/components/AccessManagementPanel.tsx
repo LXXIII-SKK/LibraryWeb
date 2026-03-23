@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { formatDateTime, humanizeToken } from "../lib/format";
-import type { AccessFormState } from "../view-models";
+import type { AccessFormState, StaffRegistrationFormState } from "../view-models";
 import type {
   AccessOptions,
   UserAccess,
@@ -12,15 +12,23 @@ import type {
 
 type AccessManagementPanelProps = {
   canManageUsers: boolean;
+  canRegisterStaff: boolean;
   users: UserAccess[];
   selectedUserId: number | null;
   selectedUser: UserAccess | null;
   disciplineHistory: UserDisciplineRecord[];
   accessOptions: AccessOptions | null;
   accessForm: AccessFormState | null;
+  staffRegistrationOptions: AccessOptions | null;
+  staffRegistrationForm: StaffRegistrationFormState | null;
   onSelectUser: (userId: number) => void;
   onUpdateField: <K extends keyof AccessFormState>(field: K, value: AccessFormState[K]) => void;
   onSave: () => void;
+  onUpdateStaffRegistrationField: <K extends keyof StaffRegistrationFormState>(
+    field: K,
+    value: StaffRegistrationFormState[K],
+  ) => void;
+  onRegisterStaff: () => void;
   onApplyUserDiscipline: (
     userId: number,
     action: UserDisciplineActionType,
@@ -31,20 +39,27 @@ type AccessManagementPanelProps = {
 
 export function AccessManagementPanel({
   canManageUsers,
+  canRegisterStaff,
   users,
   selectedUserId,
   selectedUser,
   disciplineHistory,
   accessOptions,
   accessForm,
+  staffRegistrationOptions,
+  staffRegistrationForm,
   onSelectUser,
   onUpdateField,
   onSave,
+  onUpdateStaffRegistrationField,
+  onRegisterStaff,
   onApplyUserDiscipline,
 }: AccessManagementPanelProps) {
   const [disciplineAction, setDisciplineAction] = useState<UserDisciplineActionType | "">("");
   const [disciplineReason, setDisciplineReason] = useState<UserDisciplineReason | "">("");
   const [disciplineNote, setDisciplineNote] = useState("");
+  const branchAssignmentRequired =
+    staffRegistrationForm !== null && ["LIBRARIAN", "BRANCH_MANAGER"].includes(staffRegistrationForm.role);
 
   useEffect(() => {
     setDisciplineAction(accessOptions?.disciplineActions[0] ?? "");
@@ -57,9 +72,122 @@ export function AccessManagementPanel({
       <div className="section-heading">
         <div>
           <p className="section-label">Access Control</p>
-          <h3>Roles, statuses, branch scope, and member discipline</h3>
+          <h3>Staff registration, access governance, and member discipline</h3>
         </div>
       </div>
+
+      {canRegisterStaff && staffRegistrationOptions && staffRegistrationForm ? (
+        <div className="admin-panel">
+          <h4>Register staff account</h4>
+          <p className="hero-text">
+            Create the Keycloak identity and local access record together. Member accounts stay outside this workflow.
+          </p>
+
+          <div className="command-grid">
+            <label className="field">
+              <span>Username</span>
+              <input
+                value={staffRegistrationForm.username}
+                onChange={(event) => onUpdateStaffRegistrationField("username", event.target.value)}
+                maxLength={100}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Email</span>
+              <input
+                type="email"
+                value={staffRegistrationForm.email}
+                onChange={(event) => onUpdateStaffRegistrationField("email", event.target.value)}
+                maxLength={255}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Initial password</span>
+              <input
+                type="password"
+                value={staffRegistrationForm.password}
+                onChange={(event) => onUpdateStaffRegistrationField("password", event.target.value)}
+                minLength={8}
+                maxLength={255}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Role</span>
+              <select
+                value={staffRegistrationForm.role}
+                onChange={(event) => onUpdateStaffRegistrationField("role", event.target.value)}
+              >
+                {staffRegistrationOptions.roles.map((role) => (
+                  <option key={role} value={role}>
+                    {humanizeToken(role)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Account status</span>
+              <select
+                value={staffRegistrationForm.accountStatus}
+                onChange={(event) => onUpdateStaffRegistrationField("accountStatus", event.target.value)}
+              >
+                {staffRegistrationOptions.accountStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {humanizeToken(status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Branch</span>
+              <select
+                value={staffRegistrationForm.branchId}
+                onChange={(event) => onUpdateStaffRegistrationField("branchId", event.target.value)}
+              >
+                <option value="">{branchAssignmentRequired ? "Select branch" : "No branch assignment"}</option>
+                {staffRegistrationOptions.branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name} ({branch.code})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Home branch</span>
+              <select
+                value={staffRegistrationForm.homeBranchId}
+                onChange={(event) => onUpdateStaffRegistrationField("homeBranchId", event.target.value)}
+              >
+                <option value="">{branchAssignmentRequired ? "Use branch assignment" : "No home branch"}</option>
+                {staffRegistrationOptions.branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name} ({branch.code})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field field-wide">
+              <span>Password setup</span>
+              <div>
+                <input
+                  type="checkbox"
+                  checked={staffRegistrationForm.requirePasswordChange}
+                  onChange={(event) =>
+                    onUpdateStaffRegistrationField("requirePasswordChange", event.target.checked)
+                  }
+                />{" "}
+                Require password reset on first sign-in
+              </div>
+            </label>
+          </div>
+
+          <div className="form-actions">
+            <button onClick={onRegisterStaff}>Register staff account</button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="access-grid">
         <div className="stack-list access-list">

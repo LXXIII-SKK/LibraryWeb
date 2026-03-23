@@ -1,5 +1,6 @@
 package com.example.library.identity;
 
+import java.util.Locale;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumSet;
@@ -115,6 +116,14 @@ public enum AppRole {
 
     public boolean isReadOnly() {
         return this == AUDITOR;
+    }
+
+    public boolean isStaff() {
+        return this != MEMBER;
+    }
+
+    public String keycloakRoleName() {
+        return name().toLowerCase(Locale.ROOT);
     }
 
     public static Optional<AppRole> resolve(Collection<String> authorities) {

@@ -4,10 +4,12 @@ import java.util.List;
 
 import com.example.library.branch.BranchService;
 import com.example.library.branch.LibraryBranch;
+import com.example.library.common.OperationalActivityEvent;
 import com.example.library.identity.AuthorizationService;
 import com.example.library.identity.CurrentUser;
 import com.example.library.identity.CurrentUserService;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,16 +22,19 @@ public class LocationService {
     private final BranchService branchService;
     private final CurrentUserService currentUserService;
     private final AuthorizationService authorizationService;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     public LocationService(
             LibraryLocationRepository libraryLocationRepository,
             BranchService branchService,
             CurrentUserService currentUserService,
-            AuthorizationService authorizationService) {
+            AuthorizationService authorizationService,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.libraryLocationRepository = libraryLocationRepository;
         this.branchService = branchService;
         this.currentUserService = currentUserService;
         this.authorizationService = authorizationService;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     public List<LibraryLocationResponse> listManagedLocations() {
@@ -66,12 +71,14 @@ public class LocationService {
                 request.floorLabel(),
                 request.zoneLabel(),
                 request.active()));
+        publishLocationActivity("created location", null, location);
         return LibraryLocationResponse.from(location);
     }
 
     @Transactional
     public LibraryLocationResponse update(Long locationId, LocationUpsertRequest request) {
         LibraryLocation location = findEntity(locationId);
+        String beforeState = describe(location);
         LibraryBranch branch = branchService.resolveBranch(request.branchId());
         authorizationService.assertCanManageBranchInventory(branch.getId());
         if (location.getBranch() != null && location.getBranch().getId() != null) {
@@ -85,6 +92,7 @@ public class LocationService {
                 request.floorLabel(),
                 request.zoneLabel(),
                 request.active());
+        publishLocationActivity("updated location", beforeState, location);
         return LibraryLocationResponse.from(location);
     }
 
@@ -95,5 +103,27 @@ public class LocationService {
         if (exists) {
             throw new IllegalArgumentException("Location code is already in use for this branch");
         }
+    }
+
+    private void publishLocationActivity(String action, String beforeState, LibraryLocation location) {
+        CurrentUser actor = currentUserService.getCurrentUser();
+        String message = beforeState == null
+                ? "%s %s [%s]".formatted(actor.username(), action, describe(location))
+                : "%s %s from [%s] to [%s]".formatted(actor.username(), action, beforeState, describe(location));
+        applicationEventPublisher.publishEvent(new OperationalActivityEvent(
+                actor.id(),
+                "LOCATION_UPDATED",
+                message,
+                java.time.Instant.now()));
+    }
+
+    private String describe(LibraryLocation location) {
+        return "branch=%s, code=%s, name=%s, floor=%s, zone=%s, active=%s".formatted(
+                location.getBranch() != null ? location.getBranch().getCode() : "none",
+                location.getCode(),
+                location.getName(),
+                location.getFloorLabel(),
+                location.getZoneLabel(),
+                location.isActive());
     }
 }

@@ -7,6 +7,7 @@ export type Book = {
   isbn: string | null;
   totalQuantity: number;
   availableQuantity: number;
+  viewCount: number;
   tags: string[];
   coverImageUrl: string | null;
   hasOnlineAccess: boolean;
@@ -23,6 +24,8 @@ export type AccountStatus = "PENDING_VERIFICATION" | "ACTIVE" | "SUSPENDED" | "L
 export type MembershipStatus = "GOOD_STANDING" | "OVERDUE_RESTRICTED" | "BORROW_BLOCKED" | "EXPIRED";
 export type AccessScope = "SELF" | "BRANCH" | "GLOBAL";
 export type UserDisciplineActionType = "SUSPEND" | "BAN" | "REINSTATE";
+export type BorrowingStatus = "BORROWED" | "CLAIMED_RETURNED" | "LOST" | "DAMAGED" | "RETURNED";
+export type BorrowingExceptionAction = "CLAIM_RETURNED" | "MARK_LOST" | "MARK_DAMAGED";
 export type UserDisciplineReason =
   | "OVERDUE_ABUSE"
   | "UNPAID_FEES"
@@ -105,8 +108,12 @@ export type Borrowing = {
   dueAt: string;
   lastRenewedAt: string | null;
   renewalCount: number;
+  lastRenewalOverride: boolean;
+  lastRenewalReason: string | null;
+  exceptionRecordedAt: string | null;
+  exceptionNote: string | null;
   returnedAt: string | null;
-  status: "BORROWED" | "RETURNED";
+  status: BorrowingStatus;
 };
 
 export type Reservation = {
@@ -210,6 +217,7 @@ export type ActivityLog = {
     | "BORROWED"
     | "RETURNED"
     | "RENEWED"
+    | "BORROWING_EXCEPTION_RECORDED"
     | "RESERVED"
     | "RESERVATION_CANCELLED"
     | "RESERVATION_NO_SHOW"

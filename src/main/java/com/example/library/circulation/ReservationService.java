@@ -292,6 +292,7 @@ public class ReservationService {
                 saved.getUser().getUsername(),
                 reservation.getBook().getId(),
                 reservation.getBook().getTitle(),
+                true,
                 saved.getBorrowedAt()));
         return BorrowTransactionResponse.from(saved);
     }

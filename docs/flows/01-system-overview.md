@@ -2,88 +2,96 @@
 
 ## Purpose
 
-This document explains the overall request structure of the Mini Library Management System.
+This document summarizes the current request flow across the Mini Library stack and names the modules that own the main responsibilities.
 
 ## Main Layers
 
-### Presentation Layer
+### Frontend
 
-Responsible for user interaction and HTTP request handling.
+- React 19 application in `frontend/src`
+- route handling, Keycloak session bootstrap, API orchestration, and permission-driven page composition
 
-- React frontend
-- Spring REST controllers
+### API Layer
 
-Examples:
+- Spring REST controllers under `src/main/java/com/example/library`
+- method-level authorization through `AuthorizationService`
 
-- `frontend/src/App.tsx`
-- `src/main/java/com/example/library/catalog/BookController.java`
-- `src/main/java/com/example/library/circulation/BorrowController.java`
+### Business Layer
 
-### Business Logic Layer
+- services such as `CurrentUserService`, `CatalogService`, `CirculationService`, `AccessManagementService`, and `NotificationService`
+- applies identity synchronization, scope checks, and library business rules
 
-Responsible for applying business rules and coordinating operations.
+### Persistence Layer
 
-Examples:
-
-- `CatalogService`
-- `CirculationService`
-- `ActivityLogService`
-- `CurrentUserService`
-
-### Data Access Layer
-
-Responsible for database reads and writes through Spring Data JPA.
-
-Examples:
-
-- `BookRepository`
-- `BorrowTransactionRepository`
-- `ActivityLogRepository`
-- `AppUserRepository`
+- Spring Data JPA repositories
+- Flyway-managed PostgreSQL schema and seed data
 
 ## High-Level Request Flow
 
-1. User interacts with the React web UI.
-2. Frontend sends an HTTP request to the backend API.
-3. Spring controller receives the request.
-4. Controller calls the service layer.
-5. Service executes business rules.
-6. Service uses repositories to access PostgreSQL.
-7. Service returns DTOs to the controller.
-8. Controller returns JSON to the frontend.
-9. Frontend renders the updated state.
+1. The browser loads the React application.
+2. The frontend performs a Keycloak silent SSO check.
+3. Public pages load discovery, books, filters, upcoming books, and public branches.
+4. After authentication, the frontend calls protected APIs such as `/api/profile`.
+5. Spring Security validates the JWT and resolves realm roles into authorities.
+6. `CurrentUserService` synchronizes the current principal into `app_user`.
+7. Controllers delegate to services, which enforce role, account-status, membership-status, branch-scope, and global-scope rules.
+8. Repositories read or write PostgreSQL entities.
+9. Domain events publish follow-up audit entries where required.
+10. The frontend refreshes the relevant panels and lists.
 
-## Example
+In single-origin public-test mode:
 
-Borrowing a book:
+- the frontend is still the only public entry point
+- nginx proxies `/api` to the backend and `/auth` to Keycloak behind that same origin
 
-1. User clicks `Borrow` in the catalog UI.
-2. Frontend calls `POST /api/borrowings`.
-3. `BorrowController` receives the request.
-4. `CirculationService` validates current user and book stock.
-5. `Book.borrowOne()` decreases available quantity.
-6. `BorrowTransactionRepository` saves the transaction.
-7. A domain event is published.
-8. `ActivityLogService` listens to the event and records the activity.
-9. Frontend reloads borrowings, books, and activity history.
+## Identity Entry Point
+
+The first protected request is usually `GET /api/profile`.
+
+At that point:
+
+- seeded demo users normally match directly by their deterministic Keycloak subject id
+- legacy `seed-*` placeholder identities can still be rebound once by username as a compatibility path
+- a new `MEMBER` identity can be auto-bootstrapped into `app_user`
+- non-member identities without local provisioning are rejected
 
 ## Main Modules
 
-- Identity
-  - user synchronization from Keycloak
-  - role resolution
-- Catalog
-  - search and book management
-- Circulation
-  - borrow and return lifecycle
-- History
-  - audit logging
+- `identity`
+  - current-user synchronization, profile, permissions, access management, discipline
+- `catalog`
+  - books, tags, covers, filter metadata
+- `circulation`
+  - borrowings, renewals, reservations, fines, policies
+- `history`
+  - personal history and operational audit feeds
+- `branch`
+  - branch directory and summaries
+- `inventory`
+  - locations, physical holdings, digital access
+- `notification`
+  - staff notifications and librarian discipline-review requests
+- `discovery`
+  - landing-page recommendations and rankings
+- `upcoming`
+  - upcoming acquisitions
 
 ## Main Tables
 
 - `app_user`
+- `user_discipline_record`
 - `book`
+- `book_tag`
+- `book_cover`
+- `book_holding`
 - `borrow_transaction`
+- `reservation`
+- `fine_record`
+- `library_policy`
 - `activity_log`
+- `library_branch`
+- `library_location`
+- `staff_notification`
+- `staff_notification_receipt`
+- `upcoming_book`
 - `event_publication`
-- `event_publication_archive`

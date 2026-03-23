@@ -4,8 +4,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
-import com.example.library.branch.BranchService;
-import com.example.library.branch.LibraryBranch;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -18,11 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class CurrentUserService {
 
     private final AppUserRepository appUserRepository;
-    private final BranchService branchService;
 
-    public CurrentUserService(AppUserRepository appUserRepository, BranchService branchService) {
+    public CurrentUserService(AppUserRepository appUserRepository) {
         this.appUserRepository = appUserRepository;
-        this.branchService = branchService;
     }
 
     @Transactional
@@ -67,12 +63,6 @@ public class CurrentUserService {
         List<String> authorities = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .toList();
-        AccountStatus claimedAccountStatus = readAccountStatus(jwt);
-        MembershipStatus claimedMembershipStatus = readMembershipStatus(jwt);
-        Long claimedBranchId = readLongClaim(jwt, "library_branch_id", "branch_id");
-        Long claimedHomeBranchId = readLongClaim(jwt, "library_home_branch_id", "home_branch_id");
-        LibraryBranch claimedBranch = branchService.findBranchOrNull(claimedBranchId);
-        LibraryBranch claimedHomeBranch = branchService.findBranchOrNull(claimedHomeBranchId);
 
         AppUser user = appUserRepository.findByKeycloakUserId(subject)
                 .or(() -> appUserRepository.findByUsername(username).map(existing -> relinkSeededUser(existing, subject)))
@@ -85,11 +75,7 @@ public class CurrentUserService {
                         username,
                         email,
                         authorities,
-                        jwt.getClaimAsMap("realm_access"),
-                        claimedAccountStatus,
-                        claimedMembershipStatus,
-                        claimedBranch,
-                        claimedHomeBranch));
+                        jwt.getClaimAsMap("realm_access")));
 
         return appUserRepository.save(user);
     }
@@ -99,11 +85,7 @@ public class CurrentUserService {
             String username,
             String email,
             List<String> authorities,
-            Map<String, Object> realmAccess,
-            AccountStatus claimedAccountStatus,
-            MembershipStatus claimedMembershipStatus,
-            LibraryBranch claimedBranch,
-            LibraryBranch claimedHomeBranch) {
+            Map<String, Object> realmAccess) {
         AppRole bootstrapRole = resolveBootstrapRole(authorities, realmAccess);
         if (bootstrapRole != AppRole.MEMBER) {
             throw new AccessDeniedException(
@@ -113,11 +95,7 @@ public class CurrentUserService {
                 subject,
                 username,
                 email,
-                bootstrapRole,
-                claimedAccountStatus != null ? claimedAccountStatus : AccountStatus.ACTIVE,
-                claimedMembershipStatus != null ? claimedMembershipStatus : MembershipStatus.GOOD_STANDING,
-                claimedBranch,
-                claimedHomeBranch);
+                bootstrapRole);
     }
 
     private AppUser relinkSeededUser(AppUser existing, String subject) {
@@ -149,37 +127,6 @@ public class CurrentUserService {
             return values.stream().map(String::valueOf).toList();
         }
         return List.of();
-    }
-
-    private AccountStatus readAccountStatus(Jwt jwt) {
-        return readEnumClaim(jwt, AccountStatus.class, "library_account_status", "account_status");
-    }
-
-    private MembershipStatus readMembershipStatus(Jwt jwt) {
-        return readEnumClaim(jwt, MembershipStatus.class, "library_membership_status", "membership_status");
-    }
-
-    private <E extends Enum<E>> E readEnumClaim(Jwt jwt, Class<E> enumType, String... claimNames) {
-        for (String claimName : claimNames) {
-            String value = jwt.getClaimAsString(claimName);
-            if (value != null && !value.isBlank()) {
-                return Enum.valueOf(enumType, value.trim().toUpperCase());
-            }
-        }
-        return null;
-    }
-
-    private Long readLongClaim(Jwt jwt, String... claimNames) {
-        for (String claimName : claimNames) {
-            Object value = jwt.getClaim(claimName);
-            if (value instanceof Number number) {
-                return number.longValue();
-            }
-            if (value instanceof String text && !text.isBlank()) {
-                return Long.parseLong(text.trim());
-            }
-        }
-        return null;
     }
 
     private String firstNonBlank(String... candidates) {

@@ -9,5 +9,7 @@ public record BorrowingRenewedEvent(
         String bookTitle,
         String targetUsername,
         Instant newDueAt,
+        boolean overrideApplied,
+        String reason,
         Instant occurredAt) {
 }

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
 
 import com.example.library.branch.BranchService;
 import com.example.library.branch.LibraryBranch;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,6 +49,65 @@ class NotificationServiceTests {
     @Mock
     private AuthorizationService authorizationService;
 
+    @Mock
+    private ApplicationEventPublisher applicationEventPublisher;
+
+    @Test
+    void managerBroadcastNotificationDoesNotTargetSingleUser() {
+        NotificationService service = new NotificationService(
+                staffNotificationRepository,
+                staffNotificationReceiptRepository,
+                branchService,
+                appUserRepository,
+                currentUserService,
+                authorizationService,
+                applicationEventPublisher);
+        CurrentUser manager = new CurrentUser(
+                11L,
+                "manager-1",
+                "branch.manager",
+                "manager@library.local",
+                AppRole.BRANCH_MANAGER,
+                AccountStatus.ACTIVE,
+                MembershipStatus.GOOD_STANDING,
+                3L,
+                3L);
+        AppUser creator = new AppUser(
+                "manager-1",
+                "branch.manager",
+                "manager@library.local",
+                AppRole.BRANCH_MANAGER,
+                AccountStatus.ACTIVE,
+                MembershipStatus.GOOD_STANDING,
+                3L,
+                3L);
+        LibraryBranch branch = new LibraryBranch("CENTRAL", "Central Knowledge Library", null, null, true);
+        ReflectionTestUtils.setField(creator, "id", 11L);
+        ReflectionTestUtils.setField(branch, "id", 3L);
+
+        when(currentUserService.getCurrentUser()).thenReturn(manager);
+        when(currentUserService.getCurrentUserEntity()).thenReturn(creator);
+        when(authorizationService.canSendStaffNotifications()).thenReturn(true);
+        when(branchService.resolveBranch(3L)).thenReturn(branch);
+        when(staffNotificationRepository.save(any(StaffNotification.class))).thenAnswer(invocation -> {
+            StaffNotification notification = invocation.getArgument(0);
+            ReflectionTestUtils.setField(notification, "id", 100L);
+            ReflectionTestUtils.setField(notification, "createdAt", Instant.parse("2026-03-20T08:00:00Z"));
+            return notification;
+        });
+
+        StaffNotificationResponse response = service.create(new CreateStaffNotificationRequest(
+                "Branch notice",
+                "Please review the updated desk policy.",
+                3L,
+                Set.of(AppRole.MEMBER, AppRole.LIBRARIAN)));
+
+        assertThat(response.id()).isEqualTo(100L);
+        assertThat(response.targetUserId()).isNull();
+        assertThat(response.targetUsername()).isNull();
+        assertThat(response.targetRoles()).containsExactlyInAnyOrder(AppRole.MEMBER, AppRole.LIBRARIAN);
+    }
+
     @Test
     void librarianCanEscalateDisciplineRequestToManagerAndAdmin() {
         NotificationService service = new NotificationService(
@@ -55,7 +116,8 @@ class NotificationServiceTests {
                 branchService,
                 appUserRepository,
                 currentUserService,
-                authorizationService);
+                authorizationService,
+                applicationEventPublisher);
         CurrentUser librarian = new CurrentUser(
                 10L,
                 "librarian-1",
@@ -145,7 +207,8 @@ class NotificationServiceTests {
                 branchService,
                 appUserRepository,
                 currentUserService,
-                authorizationService);
+                authorizationService,
+                applicationEventPublisher);
         CurrentUser librarian = new CurrentUser(
                 10L,
                 "librarian-1",
@@ -178,5 +241,35 @@ class NotificationServiceTests {
                         "Outside assigned branch")))
                 .isInstanceOf(org.springframework.security.access.AccessDeniedException.class)
                 .hasMessage("This user is outside your branch");
+    }
+
+    @Test
+    void listCurrentNotificationsUsesScopedRepositoryQuery() {
+        NotificationService service = new NotificationService(
+                staffNotificationRepository,
+                staffNotificationReceiptRepository,
+                branchService,
+                appUserRepository,
+                currentUserService,
+                authorizationService,
+                applicationEventPublisher);
+        CurrentUser manager = new CurrentUser(
+                11L,
+                "manager-1",
+                "branch.manager",
+                "manager@library.local",
+                AppRole.BRANCH_MANAGER,
+                AccountStatus.ACTIVE,
+                MembershipStatus.GOOD_STANDING,
+                3L,
+                3L);
+
+        when(currentUserService.getCurrentUser()).thenReturn(manager);
+        when(authorizationService.canReadStaffNotifications()).thenReturn(true);
+        when(staffNotificationReceiptRepository.findAllByUser_Id(11L)).thenReturn(java.util.List.of());
+        when(staffNotificationRepository.findVisibleToUserOrderByCreatedAtDesc(11L, AppRole.BRANCH_MANAGER, 3L))
+                .thenReturn(java.util.List.of());
+
+        assertThat(service.listCurrentNotifications()).isEmpty();
     }
 }

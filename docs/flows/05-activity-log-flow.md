@@ -2,13 +2,15 @@
 
 ## Purpose
 
-This module records and exposes audit history for borrow and return actions.
+This module records and exposes personal history plus operational audit history across circulation, policy, and user-access changes.
 
 ## Actors
 
-- Authenticated user
+- Authenticated member
+- Branch manager
 - Admin
-- Event publisher
+- Auditor
+- Event publishers
 
 ## Main Components
 
@@ -17,65 +19,73 @@ This module records and exposes audit history for borrow and return actions.
 - `ActivityLogService`
 - `ActivityLogController`
 - `ActivityLogRepository`
-- `BookBorrowedEvent`
-- `BookReturnedEvent`
+- circulation, reservation, fine, policy, and identity domain events
 
 ### Frontend
 
-- activity panel
-- admin audit feed
+- `/me` activity panel
+- operations workspace activity panel
+- book detail recent activity context
 
 ## Main Endpoints
 
+- `POST /api/books/{id}/view`
 - `GET /api/activity-logs/me`
 - `GET /api/activity-logs`
 
-## Borrow Event Logging Flow
+## Logged Event Sources
 
-1. A user borrows a book.
-2. `CirculationService` publishes `BookBorrowedEvent`.
-3. `ActivityLogService.onBookBorrowed()` listens to the event.
-4. It resolves references to:
-   - user
-   - book
-5. It creates an `ActivityLog` record with:
-   - activity type `BORROWED`
-   - message text
-   - occurrence time
-6. The record is saved.
+The current application records activity for:
 
-## Return Event Logging Flow
+- book views
+- borrowing
+- returns
+- renewals
+- reservation create and cancel
+- reservation no-show
+- fine waivers
+- policy updates
+- access updates
+- access discipline actions
 
-1. A user or admin returns a book.
-2. `CirculationService` publishes `BookReturnedEvent`.
-3. `ActivityLogService.onBookReturned()` listens to the event.
-4. It creates an `ActivityLog` record with:
-   - activity type `RETURNED`
-   - message text
-   - occurrence time
-5. The record is saved.
+## Book View Count Flow
 
-## Current User Activity Flow
+1. An authenticated non-auditor opens `/books/:id`.
+2. The frontend calls `POST /api/books/{id}/view`.
+3. `ActivityLogService` checks whether the current user already has a `VIEWED` row for that book.
+4. If not, it writes the row and returns `{ bookId, viewCount, counted: true }`.
+5. If the user already viewed that book in the current cycle, the backend returns the unchanged count with `counted: false`.
+6. The frontend uses that returned count directly instead of incrementing locally.
 
-1. Frontend calls `GET /api/activity-logs/me`.
-2. `ActivityLogController.myActivityLogs()` delegates to the service.
-3. The service resolves the current user.
-4. Logs are loaded by user id, newest first.
-5. Frontend shows the user activity timeline.
+Reset rule:
 
-## Admin Audit Flow
+- the weekly reset script deletes `VIEWED` rows from `activity_log`
+- that both resets the discovery view totals and re-enables one new counted view per user and book
 
-1. Admin opens the activity panel.
-2. Frontend calls `GET /api/activity-logs`.
-3. Endpoint is restricted to admin.
-4. All logs are loaded newest first.
-5. Frontend shows the global audit feed.
+## Personal History Flow
+
+1. An authenticated user opens `/me`.
+2. The frontend calls `GET /api/activity-logs/me` when the role has self-history access.
+3. `ActivityLogService` resolves the current user and loads records newest first.
+4. The page renders the personal activity feed beside profile, borrowings, reservations, fines, and notifications.
+
+## Operational Audit Flow
+
+1. A user with audit visibility opens the operations workspace.
+2. The frontend calls `GET /api/activity-logs`.
+3. `AuthorizationService.canReadAuditLogs()` allows:
+   - branch managers with branch reporting permissions and a branch assignment
+   - admins globally
+   - auditors globally
+4. The backend returns the visible operational activity feed newest first.
 
 ## Business Rules
 
-- Activity logs are generated automatically from circulation events.
-- Normal users can only view their own activity history.
-- Admins can view all activity logs.
+- Activity rows are produced automatically from domain events or explicit book-view recording.
+- Book views are deduplicated per user and book until the next reset period.
+- Members only see their own history.
+- Branch managers get operational audit visibility in branch scope.
+- Admins and auditors get global operational audit visibility.
 
 ## Affected Tables
 

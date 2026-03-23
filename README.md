@@ -1,20 +1,18 @@
 # Mini Library
 
-Mini Library is an enterprise-style library management system built with Java 25, Spring Boot 4, PostgreSQL 18, React 19, TypeScript, Keycloak, and Docker Compose.
+Mini Library is a full-stack library system with public discovery, member self-service, and a permission-scoped operations workspace. The current stack uses Java 25, Spring Boot 4, PostgreSQL 18, React 19, TypeScript, Keycloak, and Docker Compose.
 
 ## Current Feature Set
 
-- Public discovery landing page with recommendations, most borrowed titles, and most viewed titles
-- Dedicated books workspace with search, category filtering, tag filtering, cover images, upcoming books, and book detail pages with availability by location
-- Member self-service for borrowing, returning, renewing, reserving, fines, personal activity history, and gated online access for digital borrowings
-- Operations workspace redesigned as a sidebar-driven task system with a dashboard, notifications, catalog, inventory, upcoming books, locations, access control, branches, and policy management
-- Structured user discipline workflow for suspension, ban, and reinstatement with recorded reasons and history
-- Enterprise access model using roles, statuses, and scope
-- First-class branch centers backed by the `library_branch` table instead of raw branch IDs only
-- Branch locations and holdings for physical and digital inventory
-- Staff notification center for librarians, branch managers, and admins
-- Hybrid catalog support with physical holdings, digital holdings, and upcoming acquisitions
-- Seeded demo accounts for `MEMBER`, `LIBRARIAN`, `BRANCH_MANAGER`, `ADMIN`, and `AUDITOR`
+- Public discovery landing page with paged recommendations, most borrowed titles, most viewed titles, and upcoming arrivals
+- Books workspace with category and tag filters, 4-card pagination, cover images, branch-aware availability, and detail pages
+- Dedicated upcoming workspace with branch/search filtering and 4-card pagination
+- Member self-service for borrowing, returning, renewing, reserving, collecting ready holds, fines, notifications, digital access, and personal activity history
+- Operations workspace for librarians, branch managers, admins, and auditors according to the authenticated permission set
+- Branches, locations, physical holdings, digital holdings, targeted staff notifications, and upcoming acquisitions
+- User access management with role, account status, membership status, branch/home-branch assignment, and recorded discipline history
+- Librarian discipline-review requests that notify branch managers and admins for same-branch member issues
+- Keycloak-hosted login, registration, logout, password reset, and account-management pages with a custom theme
 
 ## Runtime URLs
 
@@ -26,15 +24,22 @@ Mini Library is an enterprise-style library management system built with Java 25
 
 ## Main Web Pages
 
-- `/` discovery landing page
-- `/books` books workspace
-- `/books/:id` book detail page
-- `/me` member self-service page
-- `/admin` operations workspace for staff, managers, admins, and auditors according to permission set
+- `/`
+  - discovery landing page
+- `/books`
+  - books workspace
+- `/upcoming`
+  - upcoming acquisitions workspace
+- `/books/:id`
+  - book detail page
+- `/me`
+  - member and account workspace
+- `/admin`
+  - permission-scoped operations workspace
 
-## Enterprise Access Model
+## Access Model
 
-Implemented application roles:
+Implemented roles:
 
 - `MEMBER`
 - `LIBRARIAN`
@@ -47,18 +52,39 @@ Implemented status fields:
 - `account_status`
 - `membership_status`
 
-Implemented scope model:
+Implemented scopes:
 
 - `SELF`
 - `BRANCH`
 - `GLOBAL`
 
-Branch user-control hierarchy:
+### User Account Provisioning
 
-- `LIBRARIAN` cannot directly manage user accounts; librarians can only manage books/inventory and send manager-review requests for member discipline
-- `BRANCH_MANAGER` can read and manage `MEMBER` and `LIBRARIAN` accounts in the same branch
-- `ADMIN` can read and manage all user accounts globally
-- branch-scoped staff cannot manage or view peer `BRANCH_MANAGER` accounts through the access workspace
+- Flyway seeds local `app_user` rows with role, status, branch, and home-branch data.
+- The imported Keycloak realm seeds matching login accounts.
+- The shipped realm now uses deterministic Keycloak subject IDs for demo users, and migration `V19__stabilize_demo_keycloak_ids.sql` aligns existing local rows to those ids.
+- `CurrentUserService` first matches by Keycloak subject. Automatic username relinking is now limited to legacy `seed-*` demo identities only.
+- A brand-new local row is auto-created only when the authenticated principal resolves to the `MEMBER` role.
+- Auto-created members default to `ACTIVE` + `GOOD_STANDING` with no branch assignment until staff update them locally.
+- Staff and admin identities require local provisioning; they are not auto-created on first login.
+- The shipped Keycloak realm enables registration and password reset, but it does not ship automatic `member` role assignment. A fresh self-registered Keycloak user is therefore not a ready-to-use application account without follow-up provisioning.
+
+### User Control Hierarchy
+
+- `LIBRARIAN`
+  - cannot list or edit users directly
+  - can manage catalog and inventory in-branch
+  - can submit a discipline-review request for a member in the same branch
+- `BRANCH_MANAGER`
+  - can read and manage `MEMBER` and `LIBRARIAN` accounts in the same branch
+  - cannot manage peer `BRANCH_MANAGER` accounts or any global-role accounts
+  - can suspend, ban, or reinstate manageable same-branch users according to state rules
+- `ADMIN`
+  - can read and manage all users globally
+  - can change roles, branches, statuses, and discipline state
+- `AUDITOR`
+  - has global read-only visibility into operational data, including users
+  - cannot mutate users and does not get effective-permission visibility for other users
 
 ## Demo Accounts
 
@@ -80,39 +106,39 @@ Seeded realm users:
 - `hq.member / reader123`
 - `compliance.auditor / auditor123`
 
+Keycloak admin console:
+
+- `admin / admin`
+
 ## Member Status Reference
 
-The current repo seeds several member examples, but not every possible status combination.
+The application uses two separate state fields:
+
+- `account_status` controls whether the account is treated as active for protected application actions
+- `membership_status` controls whether a member can start borrowing-style self-service flows
+
+Current behavior:
+
+- only `ACTIVE` accounts are treated as active by the application
+- only `GOOD_STANDING` membership allows self-service borrow, renew, reserve, and collect actions
+- `OVERDUE_RESTRICTED`, `BORROW_BLOCKED`, and `EXPIRED` still allow profile-style inspection if the user can authenticate, but they block new borrowing-style actions
 
 Seeded member login examples:
 
-| Username | Password | Account status | Membership status | What this demonstrates |
+| Username | Password | Account status | Membership status | What it demonstrates |
 | --- | --- | --- | --- | --- |
-| `reader` | `reader123` | `ACTIVE` | `GOOD_STANDING` | Normal member flow. Can log in, borrow, renew, reserve, return, and use self-service pages. |
-| `alina.reader` | `reader123` | `ACTIVE` | `GOOD_STANDING` | Same as `reader`, useful as a second normal member for testing reservations and circulation history. |
-| `central.member` | `reader123` | `ACTIVE` | `GOOD_STANDING` | Normal member at `CENTRAL`. |
-| `east.member` | `reader123` | `ACTIVE` | `GOOD_STANDING` | Normal member at `EAST`. |
-| `hq.member` | `reader123` | `ACTIVE` | `GOOD_STANDING` | Normal member at `HQ`. |
-| `hoang.nguyen` | `reader123` | `ACTIVE` | `OVERDUE_RESTRICTED` | Can still log in and view self-service data, but cannot start new borrowing or reservation flows because membership is not in good standing. |
-| `maya.tran` | `reader123` | `ACTIVE` | `BORROW_BLOCKED` | Can still log in and inspect account data, but self-service borrowing and reservation creation are blocked. |
+| `reader` | `reader123` | `ACTIVE` | `GOOD_STANDING` | Standard member flow |
+| `alina.reader` | `reader123` | `ACTIVE` | `GOOD_STANDING` | Second standard member for circulation testing |
+| `central.member` | `reader123` | `ACTIVE` | `GOOD_STANDING` | Standard member in `CENTRAL` |
+| `east.member` | `reader123` | `ACTIVE` | `GOOD_STANDING` | Standard member in `EAST` |
+| `hq.member` | `reader123` | `ACTIVE` | `GOOD_STANDING` | Standard member in `HQ` |
+| `hoang.nguyen` | `reader123` | `ACTIVE` | `OVERDUE_RESTRICTED` | Can inspect account state, but cannot start new borrowing or reservation flows |
+| `maya.tran` | `reader123` | `ACTIVE` | `BORROW_BLOCKED` | Can inspect account state, but cannot start new borrowing or reservation flows |
 
-Implemented account statuses without seeded login examples in the current dataset:
+Implemented without seeded login examples:
 
-- `PENDING_VERIFICATION`
-- `SUSPENDED`
-- `LOCKED`
-- `ARCHIVED`
-
-Implemented membership statuses without seeded login examples in the current dataset:
-
-- `EXPIRED`
-
-Behavior model:
-
-- `ACTIVE` account is the only account status treated as active by the app.
-- non-`ACTIVE` accounts can still exist in local data, but the current seeded dataset does not include demo logins for them.
-- only `GOOD_STANDING` membership allows self-service borrowing, renewal, and reservation creation.
-- `OVERDUE_RESTRICTED`, `BORROW_BLOCKED`, and `EXPIRED` block new borrowing-style actions even if the user can still sign in and view profile data.
+- account status: `PENDING_VERIFICATION`, `SUSPENDED`, `LOCKED`, `ARCHIVED`
+- membership status: `EXPIRED`
 
 Branch coverage in the seeded dataset:
 
@@ -120,24 +146,28 @@ Branch coverage in the seeded dataset:
 - `EAST`: `east.librarian`, `east.manager`, `east.member`
 - `HQ`: `hq.librarian`, `hq.manager`, `hq.member`
 
-Keycloak admin console:
+Discipline transitions:
 
-- `admin / admin`
+- `SUSPEND` -> `SUSPENDED`
+- `BAN` -> `LOCKED`
+- `REINSTATE` -> `ACTIVE`
+- only `ACTIVE` users can be suspended or banned
+- only `SUSPENDED` or `LOCKED` users can be reinstated
 
 ## Demo Data
 
-After a clean startup, Flyway seeds:
+After a clean startup, the database contains:
 
 - a tagged multi-book catalog
-- cover image support for books
-- physical holdings mapped to real branch shelf locations
-- several digital-only online books
-- upcoming acquisitions
+- cover image support
+- branch-aware locations and holdings
+- digital access URLs for digital holdings
+- upcoming books
 - staff notifications
-- discovery rankings
+- discovery ranking data
 - sample borrowings, reservations, and fines
-- library policy data
-- enterprise access metadata for seeded users
+- branch and user-access metadata
+- discipline workflow tables and event logging support
 
 ## Quick Start
 
@@ -147,7 +177,7 @@ From the project root:
 docker compose up -d --build
 ```
 
-If you need a clean reset:
+For a clean reset:
 
 ```bash
 docker compose down -v
@@ -176,12 +206,55 @@ npm install
 npm run dev
 ```
 
-Important: do not run the Docker backend and `spring-boot:run` on `8080` at the same time. Stop one before starting the other.
+Important:
+
+- do not run the Docker backend and the local JVM backend on `8080` at the same time
+- `/me` exposes a Keycloak account-management link for profile and password changes; those edits are not handled by a local profile form
+
+## Testing
+
+Backend:
+
+```powershell
+./mvnw test
+```
+
+- includes repository-free unit/service tests, controller/security tests, and PostgreSQL-backed integration tests via Testcontainers
+- requires a working Docker engine for the Testcontainers integration layer; when Docker is unavailable, those integration tests are skipped
+
+Frontend browser smoke:
+
+```powershell
+cd frontend
+npx playwright install chromium
+npm run test:smoke
+```
+
+- exercises the public discovery shell, catalog-to-detail navigation, and an admin workspace smoke path
+- uses a browser-level test auth shim and mocked API fixtures, so it does not require a live Keycloak login flow
+
+## Public Test With ngrok
+
+For Windows Command Prompt and one free tunnel only:
+
+1. Start the Docker stack.
+2. In another terminal, run `ngrok http http://localhost:3000`.
+3. From the repo root, run:
+
+```cmd
+scripts\start-public-test.cmd -PublicUrl https://<your-ngrok-url>
+```
+
+Tunnel only port `3000`. Do not expose `8080` or `8081` directly. The frontend will proxy `/api` and `/auth` after the script runs.
+
+Detailed how-to: [docs/NGROK_WINDOWS_SINGLE_PORT_SETUP.md](docs/NGROK_WINDOWS_SINGLE_PORT_SETUP.md)
 
 ## Documentation
 
 - Project documentation: [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md)
 - Setup guide: [SETUP_GUIDE.md](SETUP_GUIDE.md)
+- Windows single-port ngrok guide: [docs/NGROK_WINDOWS_SINGLE_PORT_SETUP.md](docs/NGROK_WINDOWS_SINGLE_PORT_SETUP.md)
+- Flow documents: [docs/flows/README.md](docs/flows/README.md)
 - Re-analysis backlog: [docs/PROJECT_REANALYSIS_BACKLOG.md](docs/PROJECT_REANALYSIS_BACKLOG.md)
 - GitHub publish guide: [docs/GITHUB_PUBLISH_GUIDE.md](docs/GITHUB_PUBLISH_GUIDE.md)
 - Quick operational help: [HELP.md](HELP.md)
@@ -189,6 +262,7 @@ Important: do not run the Docker backend and `spring-boot:run` on `8080` at the 
 ## Notes
 
 - The frontend is the main UI entry point. Use `http://localhost:3000`.
+- `/upcoming` is the dedicated arrival-planning page; the home page keeps a paged upcoming rail at the end.
+- `/admin` is an operations workspace, not a literal admin-only page.
 - The custom Keycloak theme is under `infra/keycloak/themes/library`.
-- Branches are now stored as first-class library centers and surfaced in the profile, catalog, and operations UI.
-- Inventory is now managed as holdings by branch and location. A full barcode/copy-transfer workflow is still a future expansion.
+- The shipped realm supports registration, but usable new-account provisioning is still incomplete.

@@ -5,8 +5,12 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
+import com.example.library.common.OperationalActivityEvent;
+import com.example.library.identity.CurrentUser;
+import com.example.library.identity.CurrentUserService;
 import jakarta.persistence.EntityNotFoundException;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,9 +19,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class BranchService {
 
     private final LibraryBranchRepository libraryBranchRepository;
+    private final CurrentUserService currentUserService;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
-    public BranchService(LibraryBranchRepository libraryBranchRepository) {
+    public BranchService(
+            LibraryBranchRepository libraryBranchRepository,
+            CurrentUserService currentUserService,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.libraryBranchRepository = libraryBranchRepository;
+        this.currentUserService = currentUserService;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     public List<LibraryBranchResponse> listAll() {
@@ -76,12 +87,14 @@ public class BranchService {
                 request.address(),
                 request.phone(),
                 request.active()));
+        publishBranchActivity("created branch", null, branch);
         return LibraryBranchResponse.from(branch);
     }
 
     @Transactional
     public LibraryBranchResponse update(Long branchId, BranchUpsertRequest request) {
         LibraryBranch branch = resolveBranch(branchId);
+        String beforeState = describe(branch);
         assertUniqueCode(request.code(), branchId);
         branch.updateDetails(
                 request.code(),
@@ -89,6 +102,7 @@ public class BranchService {
                 request.address(),
                 request.phone(),
                 request.active());
+        publishBranchActivity("updated branch", beforeState, branch);
         return LibraryBranchResponse.from(branch);
     }
 
@@ -99,5 +113,26 @@ public class BranchService {
         if (exists) {
             throw new IllegalArgumentException("Branch code is already in use");
         }
+    }
+
+    private void publishBranchActivity(String action, String beforeState, LibraryBranch branch) {
+        CurrentUser actor = currentUserService.getCurrentUser();
+        String message = beforeState == null
+                ? "%s %s [%s]".formatted(actor.username(), action, describe(branch))
+                : "%s %s from [%s] to [%s]".formatted(actor.username(), action, beforeState, describe(branch));
+        applicationEventPublisher.publishEvent(new OperationalActivityEvent(
+                actor.id(),
+                "BRANCH_UPDATED",
+                message,
+                java.time.Instant.now()));
+    }
+
+    private String describe(LibraryBranch branch) {
+        return "code=%s, name=%s, address=%s, phone=%s, active=%s".formatted(
+                branch.getCode(),
+                branch.getName(),
+                branch.getAddress(),
+                branch.getPhone(),
+                branch.isActive());
     }
 }

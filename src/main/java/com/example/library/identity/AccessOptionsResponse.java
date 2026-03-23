@@ -1,5 +1,6 @@
 package com.example.library.identity;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
@@ -22,6 +23,18 @@ public record AccessOptionsResponse(
                 branches,
                 List.of(UserDisciplineActionType.values()),
                 List.of(UserDisciplineReason.values()));
+    }
+
+    static AccessOptionsResponse staffRegistrationOptions(List<BranchSummaryResponse> branches) {
+        return new AccessOptionsResponse(
+                Arrays.stream(AppRole.values())
+                        .filter(AppRole::isStaff)
+                        .toList(),
+                List.of(AccountStatus.ACTIVE, AccountStatus.SUSPENDED, AccountStatus.LOCKED),
+                List.of(MembershipStatus.GOOD_STANDING),
+                branches,
+                List.of(),
+                List.of());
     }
 
     static AccessOptionsResponse lockedTo(UserAccessResponse user) {

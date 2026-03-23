@@ -44,7 +44,7 @@ Open:
 
 ## 3. Seeded Accounts
 
-Application users:
+Seeded realm users:
 
 - `admin / admin123`
 - `reader / reader123`
@@ -62,17 +62,33 @@ Application users:
 - `hq.member / reader123`
 - `compliance.auditor / auditor123`
 
+Seeded local-account notes:
+
+- matching `app_user` rows are also seeded by Flyway
+- seeded demo users now ship with deterministic Keycloak subject ids, and migration `V19__stabilize_demo_keycloak_ids.sql` keeps existing local rows aligned
+- automatic username relinking is limited to legacy `seed-*` demo identities only
+- a brand-new local row is auto-created only for identities that resolve to `MEMBER`
+- auto-created members default to `ACTIVE` + `GOOD_STANDING` with no branch assignment
+- staff and admin identities still require local provisioning
+
+Self-registration note:
+
+- the shipped Keycloak realm enables registration and password reset
+- it does not automatically grant a usable library role
+- a fresh self-registered Keycloak account is therefore not a ready-to-use library application account
+
 Branch mapping:
 
 - `CENTRAL`: `branch.librarian`, `branch.manager`, `central.member`
 - `EAST`: `east.librarian`, `east.manager`, `east.member`
 - `HQ`: `hq.librarian`, `hq.manager`, `hq.member`
 
-Branch user-control hierarchy:
+User-control hierarchy:
 
-- branch librarians cannot manage users directly; they can only submit manager-review requests for members in their branch
+- branch librarians cannot manage users directly; they can only submit manager-review requests for same-branch members
 - branch managers can manage librarians and members in their own branch
 - admins can manage all users globally
+- auditors can review users globally in read-only mode
 
 Member/account status coverage in seeded data:
 
@@ -90,6 +106,12 @@ Implemented but not seeded with demo logins:
 
 - account status: `PENDING_VERIFICATION`, `SUSPENDED`, `LOCKED`, `ARCHIVED`
 - membership status: `EXPIRED`
+
+Discipline transitions:
+
+- `SUSPEND` -> `SUSPENDED`
+- `BAN` -> `LOCKED`
+- `REINSTATE` -> `ACTIVE`
 
 Keycloak admin console:
 
@@ -167,6 +189,8 @@ Similarly, only one frontend should own `3000`.
   - discovery landing page
 - `/books`
   - books workspace with search, category filter, tag filter, and cover images
+- `/upcoming`
+  - dedicated upcoming acquisitions workspace
 - `/books/:id`
   - book detail page
 - `/me`
@@ -206,6 +230,65 @@ Restart backend and frontend containers:
 ```bash
 docker compose up -d backend frontend
 ```
+
+Verify the documented runtime URLs:
+
+```cmd
+scripts\verify-runtime.cmd
+```
+
+If the frontend is running locally through Vite on `5173`:
+
+```cmd
+scripts\verify-runtime.cmd vite
+```
+
+## 7.1 Public Test With ngrok
+
+Use this when you want external testers to open the current stack through public HTTPS URLs.
+
+This setup is for one tunnel only.
+
+Use only:
+
+- `http://localhost:3000`
+
+Do not expose:
+
+- `http://localhost:8080`
+- `http://localhost:8081`
+
+Command Prompt flow:
+
+1. Start the stack:
+
+```cmd
+docker compose up -d --build
+```
+
+2. In another Command Prompt window, start ngrok:
+
+```cmd
+ngrok http http://localhost:3000
+```
+
+3. Copy the HTTPS forwarding URL and run:
+
+```cmd
+scripts\start-public-test.cmd -PublicUrl https://<your-ngrok-url>
+```
+
+The script will:
+
+- recreate `keycloak`, `backend`, and `frontend` with the public URLs
+- point backend JWT issuer validation at the public Keycloak URL under `/auth`
+- rebuild the frontend to use same-origin `/api` and `/auth` routing
+- update Keycloak client `library-web` with the public frontend redirect URI and web origin
+- expose the full public stack through one ngrok origin instead of separate frontend/backend/Keycloak URLs
+
+After it finishes, share the single ngrok URL with testers.
+
+Full Windows Command Prompt how-to: [docs/NGROK_WINDOWS_SINGLE_PORT_SETUP.md](docs/NGROK_WINDOWS_SINGLE_PORT_SETUP.md)
 
 ## 8. Database Access
 
@@ -300,10 +383,11 @@ docker compose stop backend
 1. Open `http://localhost:3000`
 2. Review the discovery sections
 3. Open `/books`
-4. Filter by category or tag
-5. Open a book detail page
-6. Sign in as `reader`
-7. Borrow, reserve, or renew where allowed
-8. Open `/me` and review activity, fines, and reservations
-9. Sign in as `branch.librarian`, `branch.manager`, `admin`, or `compliance.auditor`
-10. Open `/admin` and inspect the role-specific operations panels
+4. Open `/upcoming`
+5. Filter by category or tag in `/books`
+6. Open a book detail page
+7. Sign in as `reader`
+8. Borrow, reserve, or renew where allowed
+9. Open `/me` and review activity, fines, and reservations
+10. Sign in as `branch.librarian`, `branch.manager`, `admin`, or `compliance.auditor`
+11. Open `/admin` and inspect the role-specific operations panels

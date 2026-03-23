@@ -11,6 +11,5 @@ public record CreateStaffNotificationRequest(
         @NotBlank @Size(max = 120) String title,
         @NotBlank @Size(max = 600) String message,
         Long branchId,
-        Long targetUserId,
         @NotEmpty Set<AppRole> targetRoles) {
 }

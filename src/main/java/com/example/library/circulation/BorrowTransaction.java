@@ -52,6 +52,18 @@ public class BorrowTransaction {
     @Column(name = "renewal_count", nullable = false)
     private int renewalCount;
 
+    @Column(name = "last_renewal_override", nullable = false)
+    private boolean lastRenewalOverride;
+
+    @Column(name = "last_renewal_reason", length = 255)
+    private String lastRenewalReason;
+
+    @Column(name = "exception_note", length = 500)
+    private String exceptionNote;
+
+    @Column(name = "exception_recorded_at")
+    private Instant exceptionRecordedAt;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private BorrowStatus status;
@@ -108,21 +120,56 @@ public class BorrowTransaction {
         return renewalCount;
     }
 
+    public boolean isLastRenewalOverride() {
+        return lastRenewalOverride;
+    }
+
+    public String getLastRenewalReason() {
+        return lastRenewalReason;
+    }
+
+    public String getExceptionNote() {
+        return exceptionNote;
+    }
+
+    public Instant getExceptionRecordedAt() {
+        return exceptionRecordedAt;
+    }
+
     public BorrowStatus getStatus() {
         return status;
     }
 
     public void markReturned(Instant returnedAt) {
+        if (!status.canReturnToInventory()) {
+            throw new IllegalArgumentException("Only borrowed or claimed-returned items can be returned");
+        }
         this.returnedAt = returnedAt;
+        this.exceptionNote = null;
+        this.exceptionRecordedAt = null;
         this.status = BorrowStatus.RETURNED;
     }
 
-    public void renewTo(Instant dueAt, Instant renewedAt) {
-        if (status == BorrowStatus.RETURNED) {
-            throw new IllegalArgumentException("Returned borrowings cannot be renewed");
+    public void renewTo(Instant dueAt, Instant renewedAt, boolean override, String renewalReason) {
+        if (!status.isRenewable()) {
+            throw new IllegalArgumentException("Only borrowed items can be renewed");
         }
         this.dueAt = dueAt;
         this.lastRenewedAt = renewedAt;
         this.renewalCount += 1;
+        this.lastRenewalOverride = override;
+        this.lastRenewalReason = renewalReason;
+    }
+
+    public void recordException(BorrowStatus status, String note, Instant recordedAt) {
+        if (this.status != BorrowStatus.BORROWED) {
+            throw new IllegalArgumentException("Only borrowed items can be marked with an exception");
+        }
+        if (status == null || !status.isExceptionState()) {
+            throw new IllegalArgumentException("A borrowing exception status is required");
+        }
+        this.status = status;
+        this.exceptionNote = note;
+        this.exceptionRecordedAt = recordedAt;
     }
 }

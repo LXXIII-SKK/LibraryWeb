@@ -45,13 +45,17 @@ export function AdminConsole({
   canSendNotifications,
   canRequestDisciplineReview,
   canSeeBorrowings,
+  canStaffCheckout,
   canForceReturn,
+  canOverrideBorrowings,
+  canManageBorrowingExceptions,
   canReadReservations,
   canManageReservations,
   canReadFines,
   canWaiveFines,
   canReadUsers,
   canManageUsers,
+  canRegisterStaff,
   canReadPolicies,
   canManagePolicies,
   canManageBranches,
@@ -83,6 +87,8 @@ export function AdminConsole({
   disciplineHistory,
   accessOptions,
   accessForm,
+  staffRegistrationOptions,
+  staffRegistrationForm,
   policy,
   policyForm,
   coverPreviewUrl,
@@ -112,6 +118,8 @@ export function AdminConsole({
   onMarkNotificationRead,
   onReturn,
   onStaffCheckout,
+  onOverrideBorrowing,
+  onRecordBorrowingException,
   onPrepareReservation,
   onReadyReservation,
   onExpireReservation,
@@ -120,6 +128,8 @@ export function AdminConsole({
   onSelectUser,
   onUpdateAccessField,
   onSaveAccess,
+  onUpdateStaffRegistrationField,
+  onRegisterStaff,
   onApplyUserDiscipline,
   onUpdateBranchField,
   onSubmitBranch,
@@ -133,11 +143,23 @@ export function AdminConsole({
   const [checkoutUserId, setCheckoutUserId] = useState("");
   const [checkoutBookId, setCheckoutBookId] = useState("");
   const [checkoutHoldingId, setCheckoutHoldingId] = useState("");
+  const [deskBorrowingId, setDeskBorrowingId] = useState("");
+  const [deskOverrideDueAt, setDeskOverrideDueAt] = useState("");
+  const [deskOverrideReason, setDeskOverrideReason] = useState("");
+  const [deskExceptionNote, setDeskExceptionNote] = useState("");
   const errors = useMemo(() => validateBookForm(bookForm), [bookForm]);
   const memberUsers = useMemo(() => users.filter((user) => user.role === "MEMBER"), [users]);
   const checkoutHoldings = useMemo(
     () => holdings.filter((holding) => !checkoutBookId || holding.bookId === Number(checkoutBookId)),
     [checkoutBookId, holdings],
+  );
+  const activeBorrowings = useMemo(
+    () => borrowings.filter((borrowing) => borrowing.status !== "RETURNED"),
+    [borrowings],
+  );
+  const selectedDeskBorrowing = useMemo(
+    () => activeBorrowings.find((borrowing) => borrowing.id === Number(deskBorrowingId)) ?? null,
+    [activeBorrowings, deskBorrowingId],
   );
 
   const sections = useMemo<SectionItem[]>(() => {
@@ -202,6 +224,12 @@ export function AdminConsole({
     }
   }, [activeSection, sections]);
 
+  useEffect(() => {
+    if (deskBorrowingId && !activeBorrowings.some((borrowing) => borrowing.id === Number(deskBorrowingId))) {
+      setDeskBorrowingId("");
+    }
+  }, [activeBorrowings, deskBorrowingId]);
+
   function touch(field: string) {
     setTouched((current) => ({ ...current, [field]: true }));
   }
@@ -220,6 +248,12 @@ export function AdminConsole({
     }
 
     onSubmit(event);
+  }
+
+  function resetDeskWorkflowInputs() {
+    setDeskOverrideDueAt("");
+    setDeskOverrideReason("");
+    setDeskExceptionNote("");
   }
 
   function renderCatalogSection() {
@@ -372,59 +406,180 @@ export function AdminConsole({
           </div>
           <div className="status-chip">{pluralize(borrowings.length, "transaction")}</div>
         </div>
-        <div className="command-grid">
-          <label className="field">
-            <span>Member</span>
-            <select value={checkoutUserId} onChange={(event) => setCheckoutUserId(event.target.value)}>
-              <option value="">Select member</option>
-              {memberUsers.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.username}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Title</span>
-            <select value={checkoutBookId} onChange={(event) => setCheckoutBookId(event.target.value)}>
-              <option value="">Select title</option>
-              {books.map((book) => (
-                <option key={book.id} value={book.id}>
-                  {book.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Holding</span>
-            <select value={checkoutHoldingId} onChange={(event) => setCheckoutHoldingId(event.target.value)}>
-              <option value="">Auto-select when possible</option>
-              {checkoutHoldings.map((holding) => (
-                <option key={holding.id} value={holding.id}>
-                  {holding.bookTitle} | {holding.branch?.name ?? "Global"} | {holding.location?.name ?? "Online access"}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="form-actions">
-            <button
-              type="button"
-              onClick={() => {
-                if (!checkoutUserId || !checkoutBookId) {
-                  return;
-                }
-                onStaffCheckout(
-                  Number(checkoutUserId),
-                  Number(checkoutBookId),
-                  checkoutHoldingId ? Number(checkoutHoldingId) : null,
-                );
-              }}
-              disabled={!checkoutUserId || !checkoutBookId}
-            >
-              Staff checkout
-            </button>
+        {canStaffCheckout ? (
+          <div className="command-grid">
+            <label className="field">
+              <span>Member</span>
+              <select value={checkoutUserId} onChange={(event) => setCheckoutUserId(event.target.value)}>
+                <option value="">Select member</option>
+                {memberUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.username}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Title</span>
+              <select value={checkoutBookId} onChange={(event) => setCheckoutBookId(event.target.value)}>
+                <option value="">Select title</option>
+                {books.map((book) => (
+                  <option key={book.id} value={book.id}>
+                    {book.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Holding</span>
+              <select value={checkoutHoldingId} onChange={(event) => setCheckoutHoldingId(event.target.value)}>
+                <option value="">Auto-select when possible</option>
+                {checkoutHoldings.map((holding) => (
+                  <option key={holding.id} value={holding.id}>
+                    {holding.bookTitle} | {holding.branch?.name ?? "Global"} | {holding.location?.name ?? "Online access"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="form-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!checkoutUserId || !checkoutBookId) {
+                    return;
+                  }
+                  onStaffCheckout(
+                    Number(checkoutUserId),
+                    Number(checkoutBookId),
+                    checkoutHoldingId ? Number(checkoutHoldingId) : null,
+                  );
+                }}
+                disabled={!checkoutUserId || !checkoutBookId}
+              >
+                Staff checkout
+              </button>
+            </div>
           </div>
-        </div>
+        ) : null}
+        {canOverrideBorrowings || canManageBorrowingExceptions ? (
+          <div className="command-grid">
+            <label className="field">
+              <span>Borrowing</span>
+              <select value={deskBorrowingId} onChange={(event) => setDeskBorrowingId(event.target.value)}>
+                <option value="">Select active borrowing</option>
+                {activeBorrowings.map((borrowing) => (
+                  <option key={borrowing.id} value={borrowing.id}>
+                    {borrowing.username} | {borrowing.bookTitle} | {borrowing.status}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {canOverrideBorrowings ? (
+              <>
+                <label className="field">
+                  <span>Override due at</span>
+                  <input
+                    type="datetime-local"
+                    value={deskOverrideDueAt}
+                    onChange={(event) => setDeskOverrideDueAt(event.target.value)}
+                    disabled={!selectedDeskBorrowing || selectedDeskBorrowing.status !== "BORROWED"}
+                  />
+                </label>
+                <label className="field">
+                  <span>Override reason</span>
+                  <input
+                    value={deskOverrideReason}
+                    onChange={(event) => setDeskOverrideReason(event.target.value)}
+                    placeholder="Reason for manual renewal"
+                    disabled={!selectedDeskBorrowing || selectedDeskBorrowing.status !== "BORROWED"}
+                  />
+                </label>
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!selectedDeskBorrowing || !deskOverrideReason.trim()) {
+                        return;
+                      }
+                      onOverrideBorrowing(
+                        selectedDeskBorrowing.id,
+                        deskOverrideDueAt.trim() ? deskOverrideDueAt : null,
+                        deskOverrideReason.trim(),
+                      );
+                      setDeskOverrideDueAt("");
+                      setDeskOverrideReason("");
+                    }}
+                    disabled={!selectedDeskBorrowing || selectedDeskBorrowing.status !== "BORROWED" || !deskOverrideReason.trim()}
+                  >
+                    Override renew
+                  </button>
+                </div>
+              </>
+            ) : null}
+            {canManageBorrowingExceptions ? (
+              <>
+                <label className="field">
+                  <span>Exception note</span>
+                  <input
+                    value={deskExceptionNote}
+                    onChange={(event) => setDeskExceptionNote(event.target.value)}
+                    placeholder="Document the desk action"
+                    disabled={!selectedDeskBorrowing || selectedDeskBorrowing.status !== "BORROWED"}
+                  />
+                </label>
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => {
+                      if (!selectedDeskBorrowing || !deskExceptionNote.trim()) {
+                        return;
+                      }
+                      onRecordBorrowingException(selectedDeskBorrowing.id, "CLAIM_RETURNED", deskExceptionNote.trim());
+                      setDeskExceptionNote("");
+                    }}
+                    disabled={!selectedDeskBorrowing || selectedDeskBorrowing.status !== "BORROWED" || !deskExceptionNote.trim()}
+                  >
+                    Claim returned
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => {
+                      if (!selectedDeskBorrowing || !deskExceptionNote.trim()) {
+                        return;
+                      }
+                      onRecordBorrowingException(selectedDeskBorrowing.id, "MARK_LOST", deskExceptionNote.trim());
+                      setDeskExceptionNote("");
+                    }}
+                    disabled={!selectedDeskBorrowing || selectedDeskBorrowing.status !== "BORROWED" || !deskExceptionNote.trim()}
+                  >
+                    Mark lost
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => {
+                      if (!selectedDeskBorrowing || !deskExceptionNote.trim()) {
+                        return;
+                      }
+                      onRecordBorrowingException(selectedDeskBorrowing.id, "MARK_DAMAGED", deskExceptionNote.trim());
+                      setDeskExceptionNote("");
+                    }}
+                    disabled={!selectedDeskBorrowing || selectedDeskBorrowing.status !== "BORROWED" || !deskExceptionNote.trim()}
+                  >
+                    Mark damaged
+                  </button>
+                </div>
+              </>
+            ) : null}
+            {selectedDeskBorrowing ? (
+              <div className="status-chip">
+                {selectedDeskBorrowing.username} | {selectedDeskBorrowing.status}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="table-wrap">
           <table>
             <thead>
@@ -449,14 +604,29 @@ export function AdminConsole({
                       : [borrowing.branchName, borrowing.locationName].filter(Boolean).join(" | ") || "Unassigned"}
                   </td>
                   <td>{formatDateTime(borrowing.borrowedAt)}</td>
-                  <td>{formatDateTime(borrowing.dueAt)}</td>
+                  <td>
+                    {formatDateTime(borrowing.dueAt)}
+                    {borrowing.lastRenewalOverride && borrowing.lastRenewalReason ? (
+                      <small className="table-subcopy">Override: {borrowing.lastRenewalReason}</small>
+                    ) : null}
+                  </td>
                   <td>
                     <span className={`pill pill-${borrowing.status.toLowerCase()}`}>{borrowing.status}</span>
+                    {borrowing.exceptionNote ? <small className="table-subcopy">{borrowing.exceptionNote}</small> : null}
                   </td>
                   <td className="table-actions">
                     {canForceReturn ? (
-                      <button onClick={() => onReturn(borrowing.id)} disabled={borrowing.status === "RETURNED"}>
-                        {borrowing.status === "RETURNED" ? "Returned" : "Force return"}
+                      <button
+                        onClick={() => onReturn(borrowing.id)}
+                        disabled={["RETURNED", "LOST", "DAMAGED"].includes(borrowing.status)}
+                      >
+                        {borrowing.status === "CLAIMED_RETURNED"
+                          ? "Confirm returned"
+                          : borrowing.status === "RETURNED"
+                            ? "Returned"
+                            : ["LOST", "DAMAGED"].includes(borrowing.status)
+                              ? "Closed"
+                              : "Force return"}
                       </button>
                     ) : null}
                   </td>
@@ -542,6 +712,11 @@ export function AdminConsole({
             title="Operational holds and no-show handling"
             reservations={reservations}
             canManage={canManageReservations}
+            canCheckoutReadyHolds={canStaffCheckout}
+            onCheckoutReadyHold={(reservationId, userId, bookId, holdingId) => {
+              onStaffCheckout(userId, bookId, holdingId, reservationId);
+              resetDeskWorkflowInputs();
+            }}
             onPrepare={onPrepareReservation}
             onReady={onReadyReservation}
             onExpire={onExpireReservation}
@@ -562,15 +737,20 @@ export function AdminConsole({
         return (
           <AccessManagementPanel
             canManageUsers={canManageUsers}
+            canRegisterStaff={canRegisterStaff}
             users={users}
             selectedUserId={selectedUserId}
             selectedUser={selectedUser}
             disciplineHistory={disciplineHistory}
             accessOptions={accessOptions}
             accessForm={accessForm}
+            staffRegistrationOptions={staffRegistrationOptions}
+            staffRegistrationForm={staffRegistrationForm}
             onSelectUser={onSelectUser}
             onUpdateField={onUpdateAccessField}
             onSave={onSaveAccess}
+            onUpdateStaffRegistrationField={onUpdateStaffRegistrationField}
+            onRegisterStaff={onRegisterStaff}
             onApplyUserDiscipline={onApplyUserDiscipline}
           />
         );

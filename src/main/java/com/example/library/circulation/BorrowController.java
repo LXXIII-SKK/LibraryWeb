@@ -48,6 +48,14 @@ class BorrowController {
         return circulationService.renewBorrowing(transactionId, request);
     }
 
+    @PostMapping("/{transactionId}/exception")
+    @PreAuthorize("@authorizationService.canManageBorrowingExceptions()")
+    BorrowTransactionResponse recordException(
+            @PathVariable Long transactionId,
+            @Valid @RequestBody BorrowingExceptionRequest request) {
+        return circulationService.recordBorrowingException(transactionId, request);
+    }
+
     @GetMapping("/me")
     @PreAuthorize("@authorizationService.canReadOwnBorrowings()")
     List<BorrowTransactionResponse> myBorrowings() {
