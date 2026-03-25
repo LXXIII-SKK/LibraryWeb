@@ -2,8 +2,10 @@ import type {
   AccessOptions,
   ActivityLog,
   Book,
+  BookCopy,
   BookHolding,
   BookFilters,
+  BookTransfer,
   BorrowingExceptionAction,
   Borrowing,
   DigitalAccessLink,
@@ -518,6 +520,10 @@ export function fetchInventoryHoldings(): Promise<BookHolding[]> {
   return request<BookHolding[]>("/api/inventory/holdings");
 }
 
+export function fetchInventoryCopies(): Promise<BookCopy[]> {
+  return request<BookCopy[]>("/api/inventory/copies");
+}
+
 export function createInventoryHolding(payload: HoldingPayload): Promise<BookHolding> {
   return request<BookHolding>("/api/inventory/holdings", {
     method: "POST",
@@ -545,6 +551,10 @@ type UpcomingBookPayload = {
 
 export function fetchUpcomingBooks(): Promise<UpcomingBook[]> {
   return requestWithAuth<UpcomingBook[]>("/api/upcoming-books", false);
+}
+
+export function fetchTransfers(): Promise<BookTransfer[]> {
+  return request<BookTransfer[]>("/api/transfers");
 }
 
 export function createUpcomingBook(payload: UpcomingBookPayload): Promise<UpcomingBook> {

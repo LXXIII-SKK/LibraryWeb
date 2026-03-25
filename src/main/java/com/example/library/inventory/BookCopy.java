@@ -135,8 +135,8 @@ public class BookCopy {
     }
 
     public void markInTransit(LibraryBranch destinationBranch) {
+        requireBranch(destinationBranch);
         this.status = BookCopyStatus.IN_TRANSIT;
-        this.currentBranch = requireBranch(destinationBranch);
         this.currentLocation = null;
     }
 

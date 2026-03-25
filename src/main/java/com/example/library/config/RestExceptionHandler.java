@@ -47,6 +47,11 @@ class RestExceptionHandler {
         return problem(HttpStatus.BAD_REQUEST, "Upload too large", "Cover image must be 5 MB or smaller");
     }
 
+    @ExceptionHandler(Exception.class)
+    ProblemDetail handleException(Exception exception) {
+        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", "An unexpected error occurred. Please try again later.");
+    }
+
     private ProblemDetail problem(HttpStatus status, String title, String detail) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(status, detail);
         problemDetail.setTitle(title);

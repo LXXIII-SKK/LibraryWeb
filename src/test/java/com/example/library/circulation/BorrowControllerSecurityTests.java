@@ -73,6 +73,8 @@ class BorrowControllerSecurityTests {
                                 10L,
                                 "Domain-Driven Design",
                                 100L,
+                                1000L,
+                                "COPY-100-0001",
                                 com.example.library.inventory.HoldingFormat.PHYSICAL,
                                 "East Branch",
                                 "Stacks A",

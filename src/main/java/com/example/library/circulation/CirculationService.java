@@ -12,6 +12,7 @@ import com.example.library.identity.AppPermission;
 import com.example.library.identity.AuthorizationService;
 import com.example.library.identity.CurrentUser;
 import com.example.library.identity.CurrentUserService;
+import com.example.library.inventory.BookCopy;
 import com.example.library.inventory.BookHolding;
 import com.example.library.inventory.InventoryService;
 import io.micrometer.observation.Observation;
@@ -150,12 +151,18 @@ public class CirculationService {
         reservationService.assertNoReadyReservationBlocksDirectBorrow(currentUser.id(), book.getId());
         assertReservationQueueAllowsBorrowing(book.getId(), currentUser.id());
         BookHolding holding = inventoryService.resolveBorrowableHolding(book, request.holdingId());
-        holding.borrowOne();
-        inventoryService.synchronizeBookInventory(book);
+        BookCopy copy = holding.getFormat() == com.example.library.inventory.HoldingFormat.PHYSICAL
+                ? inventoryService.checkoutCopy(holding)
+                : null;
+        if (copy == null) {
+            holding.borrowOne();
+            inventoryService.synchronizeBookInventory(book);
+        }
         BorrowTransaction saved = createBorrowTransaction(
                 currentUserService.getCurrentUserEntity(),
                 book,
                 holding,
+                copy,
                 Instant.now());
         reservationService.markFulfilledForBookAndUser(book, saved.getUser());
 
@@ -186,9 +193,15 @@ public class CirculationService {
                     "Lost or damaged borrowings must be resolved through an item exception workflow");
         }
 
-        if (transaction.getHolding() != null) {
-            transaction.getHolding().returnOne();
-            inventoryService.synchronizeBookInventory(transaction.getBook());
+        if (transaction.getCopy() != null) {
+            inventoryService.returnCopy(transaction.getCopy());
+        } else if (transaction.getHolding() != null) {
+            if (transaction.getHolding().getFormat() == com.example.library.inventory.HoldingFormat.PHYSICAL) {
+                inventoryService.returnLegacyPhysicalCopy(transaction.getHolding());
+            } else {
+                transaction.getHolding().returnOne();
+                inventoryService.synchronizeBookInventory(transaction.getBook());
+            }
         } else {
             transaction.getBook().returnOne();
         }
@@ -243,14 +256,25 @@ public class CirculationService {
             if (reservation.getStatus() != ReservationStatus.READY_FOR_PICKUP || reservation.getReservedHolding() == null) {
                 throw new IllegalArgumentException("Only ready reservations can be checked out by staff");
             }
-            saved = createBorrowTransaction(targetUser, book, reservation.getReservedHolding(), now);
+            if (reservation.getReservedCopy() != null) {
+                reservation.getReservedCopy().markBorrowed();
+                if (reservation.getTransfer() != null && reservation.getTransfer().getStatus() == BookTransferStatus.READY_FOR_PICKUP) {
+                    reservationService.completeReadyTransfer(reservation, now);
+                }
+            }
+            saved = createBorrowTransaction(targetUser, book, reservation.getReservedHolding(), reservation.getReservedCopy(), now);
             reservation.fulfill(now);
         } else {
             reservationService.assertNoReadyReservationBlocksDirectBorrow(targetUser.getId(), book.getId());
             BookHolding holding = resolveStaffCheckoutHolding(book, request, currentUser);
-            holding.borrowOne();
-            inventoryService.synchronizeBookInventory(book);
-            saved = createBorrowTransaction(targetUser, book, holding, now);
+            BookCopy copy = holding.getFormat() == com.example.library.inventory.HoldingFormat.PHYSICAL
+                    ? inventoryService.checkoutCopy(holding)
+                    : null;
+            if (copy == null) {
+                holding.borrowOne();
+                inventoryService.synchronizeBookInventory(book);
+            }
+            saved = createBorrowTransaction(targetUser, book, holding, copy, now);
             reservationService.markFulfilledForBookAndUser(book, targetUser);
         }
 
@@ -346,6 +370,9 @@ public class CirculationService {
         }
 
         transaction.recordException(request.action().status(), note, Instant.now());
+        if (transaction.getCopy() != null) {
+            inventoryService.applyBorrowingException(transaction.getCopy(), transaction.getStatus());
+        }
         applicationEventPublisher.publishEvent(new BorrowingExceptionRecordedEvent(
                 currentUser.id(),
                 currentUser.username(),
@@ -367,12 +394,18 @@ public class CirculationService {
                 });
     }
 
-    private BorrowTransaction createBorrowTransaction(AppUser user, Book book, BookHolding holding, Instant borrowedAt) {
+    private BorrowTransaction createBorrowTransaction(
+            AppUser user,
+            Book book,
+            BookHolding holding,
+            BookCopy copy,
+            Instant borrowedAt) {
         LibraryPolicy policy = policyService.getCurrentPolicyEntity();
         BorrowTransaction transaction = new BorrowTransaction(
                 user,
                 book,
                 holding,
+                copy,
                 borrowedAt,
                 borrowedAt.plus(policy.getStandardLoanDays(), ChronoUnit.DAYS));
         return borrowTransactionRepository.save(transaction);

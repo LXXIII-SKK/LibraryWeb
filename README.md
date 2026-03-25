@@ -173,9 +173,13 @@ After a clean startup, the database contains:
 
 From the project root:
 
-```bash
+```cmd
+copy compose.env.example .env
+notepad .env
 docker compose up -d --build
 ```
+
+The stack now reads operational secrets from `.env`. `compose.env.example` is the checked-in sample only.
 
 For a clean reset:
 
@@ -233,6 +237,16 @@ npm run test:smoke
 - exercises the public discovery shell, catalog-to-detail navigation, and an admin workspace smoke path
 - uses a browser-level test auth shim and mocked API fixtures, so it does not require a live Keycloak login flow
 
+Operations checks:
+
+```cmd
+scripts\verify-migrations.cmd
+scripts\backup-db.cmd
+```
+
+- `verify-migrations.cmd` confirms the database schema version matches the latest Flyway script and that no failed migration rows exist
+- `backup-db.cmd` writes a SQL dump into the ignored `backups\` folder by default
+
 ## Public Test With ngrok
 
 For Windows Command Prompt and one free tunnel only:
@@ -253,6 +267,7 @@ Detailed how-to: [docs/NGROK_WINDOWS_SINGLE_PORT_SETUP.md](docs/NGROK_WINDOWS_SI
 
 - Project documentation: [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md)
 - Setup guide: [SETUP_GUIDE.md](SETUP_GUIDE.md)
+- Operations runbook: [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md)
 - Windows single-port ngrok guide: [docs/NGROK_WINDOWS_SINGLE_PORT_SETUP.md](docs/NGROK_WINDOWS_SINGLE_PORT_SETUP.md)
 - Flow documents: [docs/flows/README.md](docs/flows/README.md)
 - Re-analysis backlog: [docs/PROJECT_REANALYSIS_BACKLOG.md](docs/PROJECT_REANALYSIS_BACKLOG.md)

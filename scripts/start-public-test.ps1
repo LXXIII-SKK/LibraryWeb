@@ -39,6 +39,7 @@ function Read-EnvValue {
         [string]$Key
     )
 
+    if (-not (Test-Path $Path)) { return $null }
     $line = Get-Content -Path $Path | Where-Object { $_ -match "^\s*$([regex]::Escape($Key))=" } | Select-Object -First 1
     if (-not $line) {
         return $null
@@ -63,10 +64,8 @@ function Wait-ForHttpReady {
             }
         } catch {
         }
-
         Start-Sleep -Seconds 2
     }
-
     throw "Timed out waiting for $Url"
 }
 
@@ -76,18 +75,27 @@ function Get-KeycloakAdminToken {
         [string]$LocalKeycloakBaseUrl
     )
 
-    $tokenResponse = Invoke-RestMethod `
-        -Method Post `
-        -Uri "$LocalKeycloakBaseUrl/realms/master/protocol/openid-connect/token" `
-        -ContentType "application/x-www-form-urlencoded" `
-        -Body @{
-            client_id = "admin-cli"
-            username = "admin"
-            password = "admin"
-            grant_type = "password"
-        }
+    $username = Read-EnvValue -Path ".env" -Key "KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME"
+    if ([string]::IsNullOrWhiteSpace($username)) { $username = "admin" }
 
-    return $tokenResponse.access_token
+    $password = Read-EnvValue -Path ".env" -Key "KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD"
+    if ([string]::IsNullOrWhiteSpace($password)) { $password = "admin" }
+
+    try {
+        $tokenResponse = Invoke-RestMethod `
+            -Method Post `
+            -Uri "$LocalKeycloakBaseUrl/realms/master/protocol/openid-connect/token" `
+            -ContentType "application/x-www-form-urlencoded" `
+            -Body @{
+                client_id = "admin-cli"
+                username = $username
+                password = $password
+                grant_type = "password"
+            }
+        return $tokenResponse.access_token
+    } catch {
+        throw "Failed to get Keycloak Admin token using username '$username'. Ensure .env matches the initialized Keycloak password. Error: $_"
+    }
 }
 
 function Update-KeycloakClient {
@@ -99,13 +107,14 @@ function Update-KeycloakClient {
     )
 
     $token = Get-KeycloakAdminToken -LocalKeycloakBaseUrl $LocalKeycloakBaseUrl
-    $headers = @{
-        Authorization = "Bearer $token"
-    }
+    $headers = @{ Authorization = "Bearer $token" }
+
+    $realm = Read-EnvValue -Path ".env" -Key "KEYCLOAK_ADMIN_REALM"
+    if ([string]::IsNullOrWhiteSpace($realm)) { $realm = "library" }
 
     $client = Invoke-RestMethod `
         -Method Get `
-        -Uri "$LocalKeycloakBaseUrl/admin/realms/library/clients?clientId=library-web" `
+        -Uri "$LocalKeycloakBaseUrl/admin/realms/$realm/clients?clientId=library-web" `
         -Headers $headers |
         Select-Object -First 1
 
@@ -127,7 +136,7 @@ function Update-KeycloakClient {
 
     $clientRepresentation = Invoke-RestMethod `
         -Method Get `
-        -Uri "$LocalKeycloakBaseUrl/admin/realms/library/clients/$($client.id)" `
+        -Uri "$LocalKeycloakBaseUrl/admin/realms/$realm/clients/$($client.id)" `
         -Headers $headers
 
     if (-not ($clientRepresentation.PSObject.Properties.Name -contains "redirectUris")) {
@@ -156,7 +165,7 @@ function Update-KeycloakClient {
 
     Invoke-RestMethod `
         -Method Put `
-        -Uri "$LocalKeycloakBaseUrl/admin/realms/library/clients/$($client.id)" `
+        -Uri "$LocalKeycloakBaseUrl/admin/realms/$realm/clients/$($client.id)" `
         -Headers ($headers + @{ "Content-Type" = "application/json" }) `
         -Body $body | Out-Null
 }
@@ -180,7 +189,6 @@ if (-not $PublicUrl -and (-not $FrontendUrl -or -not $BackendUrl -or -not $Keycl
     if (-not (Test-Path $EnvFile)) {
         throw "Provide -PublicUrl or create $EnvFile from scripts/public-test.env.example."
     }
-
     $PublicUrl = Read-EnvValue -Path $EnvFile -Key "PUBLIC_TEST_URL"
 }
 
@@ -207,7 +215,7 @@ if ($singleUrlMode) {
         "KEYCLOAK_ISSUER_URI=$KeycloakUrl/realms/library"
         "KEYCLOAK_JWK_SET_URI=http://keycloak:8080/auth/realms/library/protocol/openid-connect/certs"
         "APP_CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,$FrontendUrl"
-        "VITE_API_BASE_URL="
+        "VITE_API_BASE_URL=$FrontendUrl"
         "VITE_KEYCLOAK_URL=$KeycloakUrl"
     )
 } else {
@@ -227,7 +235,8 @@ if ($PSCmdlet.ShouldProcess($EnvFile, "Write public test environment file")) {
     Set-Content -Path $EnvFile -Value $envBody
 }
 
-$composeArgs = @("--env-file", $EnvFile, "up", "-d", "--force-recreate")
+# The true fix: cascade the baseline .env first, then override with .env.public-test
+$composeArgs = @("--env-file", ".env", "--env-file", $EnvFile, "up", "-d", "--force-recreate")
 if (-not $SkipBuild) {
     $composeArgs += "--build"
 }

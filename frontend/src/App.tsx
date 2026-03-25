@@ -26,6 +26,7 @@ import {
   fetchBorrowings,
   fetchDiscovery,
   fetchDigitalAccess,
+  fetchInventoryCopies,
   fetchInventoryHoldings,
   fetchLocations,
   fetchNotifications,
@@ -36,6 +37,7 @@ import {
   fetchUpcomingBooks,
   fetchReservations,
   fetchStaffRegistrationOptions,
+  fetchTransfers,
   fetchUserDisciplineHistory,
   fetchUser,
   fetchUserAccessOptions,
@@ -62,22 +64,36 @@ import {
   waiveFine,
   expireReservation,
 } from "./api";
-import { AdminPage } from "./components/AdminPage";
-import { BookDetailPage } from "./components/BookDetailPage";
-import { BooksWorkspacePage } from "./components/BooksWorkspacePage";
-import { NavigationBar } from "./components/NavigationBar";
-import { NotificationTray } from "./components/NotificationTray";
-import { UpcomingWorkspacePage } from "./components/UpcomingWorkspacePage";
-import { UserHubPage } from "./components/UserHubPage";
-import { WelcomePage } from "./components/WelcomePage";
+import { AppView } from "./app/AppView";
+import {
+  createStaffRegistrationForm,
+  emptyBookForm,
+  emptyBranchForm,
+  emptyDisciplineRequestForm,
+  emptyHoldingForm,
+  emptyLocationForm,
+  emptyNotificationForm,
+  emptyUpcomingBookForm,
+  parseOptionalNumber,
+  parseOptionalString,
+  parseTagInput,
+  toAccessForm,
+  toHoldingForm,
+  toLocationForm,
+  toPolicyForm,
+  toUpcomingBookForm,
+} from "./app/forms";
+import { deriveAppPermissions } from "./app/permissions";
+import { resolveRoute, type RouteState } from "./app/routing";
 import { initAuth, login, logout, manageAccount, register, username } from "./auth";
-import { humanizeToken } from "./lib/format";
 import type {
   AccessOptions,
   ActivityLog,
   Book,
+  BookCopy,
   BookHolding,
   BookFilters,
+  BookTransfer,
   BorrowingExceptionAction,
   DigitalAccessLink,
   LibraryBranch,
@@ -111,200 +127,6 @@ import type {
   DisciplineRequestFormState,
 } from "./view-models";
 
-const emptyBookForm: BookFormState = {
-  title: "",
-  author: "",
-  category: "",
-  isbn: "",
-  tags: "",
-  coverImageUrl: null,
-};
-
-const emptyBranchForm: BranchFormState = {
-  code: "",
-  name: "",
-  address: "",
-  phone: "",
-  active: true,
-};
-
-const emptyLocationForm: LocationFormState = {
-  branchId: "",
-  code: "",
-  name: "",
-  floorLabel: "",
-  zoneLabel: "",
-  active: true,
-};
-
-const emptyHoldingForm: HoldingFormState = {
-  bookId: "",
-  branchId: "",
-  locationId: "",
-  format: "PHYSICAL",
-  totalQuantity: 1,
-  availableQuantity: 1,
-  accessUrl: "",
-  active: true,
-};
-
-const emptyUpcomingBookForm: UpcomingBookFormState = {
-  title: "",
-  author: "",
-  category: "",
-  isbn: "",
-  summary: "",
-  expectedAt: "",
-  branchId: "",
-  tags: "",
-};
-
-const emptyNotificationForm: NotificationFormState = {
-  title: "",
-  message: "",
-  branchId: "",
-  targetRoles: [],
-};
-
-const emptyDisciplineRequestForm: DisciplineRequestFormState = {
-  targetUsername: "",
-  action: "SUSPEND",
-  reason: "POLICY_VIOLATION",
-  note: "",
-};
-
-function createStaffRegistrationForm(options: AccessOptions): StaffRegistrationFormState {
-  return {
-    username: "",
-    email: "",
-    password: "",
-    role: options.roles[0] ?? "LIBRARIAN",
-    accountStatus: options.accountStatuses[0] ?? "ACTIVE",
-    branchId: "",
-    homeBranchId: "",
-    requirePasswordChange: true,
-  };
-}
-
-type RouteState =
-  | { name: "home" }
-  | { name: "books" }
-  | { name: "upcoming" }
-  | { name: "account" }
-  | { name: "admin" }
-  | { name: "book"; bookId: number };
-
-function resolveRoute(pathname: string): RouteState {
-  const bookMatch = pathname.match(/^\/books\/(\d+)$/);
-  if (bookMatch) {
-    return { name: "book", bookId: Number(bookMatch[1]) };
-  }
-
-  if (pathname === "/books") {
-    return { name: "books" };
-  }
-
-  if (pathname === "/upcoming") {
-    return { name: "upcoming" };
-  }
-
-  if (pathname === "/me") {
-    return { name: "account" };
-  }
-
-  if (pathname === "/admin") {
-    return { name: "admin" };
-  }
-
-  return { name: "home" };
-}
-
-function parseTagInput(value: string) {
-  return value
-    .split(",")
-    .map((tag) => tag.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function toAccessForm(user: UserAccess): AccessFormState {
-  return {
-    role: user.role,
-    accountStatus: user.accountStatus,
-    membershipStatus: user.membershipStatus,
-    branchId: user.branchId?.toString() ?? "",
-    homeBranchId: user.homeBranchId?.toString() ?? "",
-  };
-}
-
-function toPolicyForm(policy: LibraryPolicy): PolicyFormState {
-  return {
-    standardLoanDays: policy.standardLoanDays,
-    renewalDays: policy.renewalDays,
-    maxRenewals: policy.maxRenewals,
-    finePerOverdueDay: policy.finePerOverdueDay.toFixed(2),
-    fineWaiverLimit: policy.fineWaiverLimit.toFixed(2),
-    allowRenewalWithActiveReservations: policy.allowRenewalWithActiveReservations,
-  };
-}
-
-function toLocationForm(location: LibraryLocation): LocationFormState {
-  return {
-    branchId: location.branch.id.toString(),
-    code: location.code,
-    name: location.name,
-    floorLabel: location.floorLabel ?? "",
-    zoneLabel: location.zoneLabel ?? "",
-    active: location.active,
-  };
-}
-
-function toHoldingForm(holding: BookHolding): HoldingFormState {
-  return {
-    bookId: holding.bookId.toString(),
-    branchId: holding.branch?.id?.toString() ?? "",
-    locationId: holding.location?.id?.toString() ?? "",
-    format: holding.format,
-    totalQuantity: holding.totalQuantity,
-    availableQuantity: holding.availableQuantity,
-    accessUrl: "",
-    active: holding.active,
-  };
-}
-
-function toUpcomingBookForm(upcomingBook: UpcomingBook): UpcomingBookFormState {
-  return {
-    title: upcomingBook.title,
-    author: upcomingBook.author,
-    category: upcomingBook.category ?? "",
-    isbn: upcomingBook.isbn ?? "",
-    summary: upcomingBook.summary ?? "",
-    expectedAt: toDateTimeInput(upcomingBook.expectedAt),
-    branchId: upcomingBook.branch?.id?.toString() ?? "",
-    tags: upcomingBook.tags.join(", "),
-  };
-}
-
-function parseOptionalNumber(value: string) {
-  if (!value.trim()) {
-    return null;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function parseOptionalString(value: string) {
-  const trimmed = value.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function toDateTimeInput(value: string | null | undefined) {
-  if (!value) {
-    return "";
-  }
-  return new Date(value).toISOString().slice(0, 16);
-}
-
 export default function App() {
   const [ready, setReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -330,6 +152,8 @@ export default function App() {
   const [allActivityLogs, setAllActivityLogs] = useState<ActivityLog[]>([]);
   const [users, setUsers] = useState<UserAccess[]>([]);
   const [holdings, setHoldings] = useState<BookHolding[]>([]);
+  const [copies, setCopies] = useState<BookCopy[]>([]);
+  const [transfers, setTransfers] = useState<BookTransfer[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [selectedUser, setSelectedUser] = useState<UserAccess | null>(null);
   const [disciplineHistory, setDisciplineHistory] = useState<UserDisciplineRecord[]>([]);
@@ -366,86 +190,41 @@ export default function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
 
-  const permissionSet = useMemo(() => new Set(profile?.permissions ?? []), [profile]);
-  const canManageCatalog = permissionSet.has("BOOK_CREATE") || permissionSet.has("BOOK_UPDATE");
-  const canDeleteCatalog = profile?.role === "ADMIN";
-  const canReadPersonalHistory = permissionSet.has("LOAN_SELF_READ");
-  const canReadOperationalBorrowings = permissionSet.has("LOAN_READ_GLOBAL") || permissionSet.has("REPORT_BRANCH_READ");
-  const canReadOperationalActivity =
-    permissionSet.has("AUDIT_GLOBAL_READ") ||
-    permissionSet.has("REPORT_GLOBAL_READ") ||
-    (profile?.role === "BRANCH_MANAGER" && permissionSet.has("REPORT_BRANCH_READ"));
-  const canReturnOwnBorrowings = permissionSet.has("LOAN_SELF_RETURN");
-  const canStaffCheckout = permissionSet.has("LOAN_CREATE_BRANCH") || profile?.role === "ADMIN";
-  const canForceReturn = permissionSet.has("LOAN_CLOSE_BRANCH") || profile?.role === "ADMIN";
-  const canOverrideBorrowings = permissionSet.has("LOAN_OVERRIDE_BRANCH") || profile?.role === "ADMIN";
-  const canManageBorrowingExceptions = canForceReturn;
-  const canRenewOwnBorrowings =
-    Boolean(
-      signedIn &&
-        profile &&
-        profile.role === "MEMBER" &&
-        permissionSet.has("LOAN_SELF_RENEW") &&
-        profile.accountStatus === "ACTIVE" &&
-        profile.membershipStatus === "GOOD_STANDING",
-    );
-  const canReserveForSelf = Boolean(
-    signedIn &&
-      profile &&
-      profile.role === "MEMBER" &&
-      permissionSet.has("RESERVATION_SELF_CREATE") &&
-      profile.accountStatus === "ACTIVE" &&
-      profile.membershipStatus === "GOOD_STANDING",
-  );
-  const canReadOwnReservations =
-    permissionSet.has("RESERVATION_SELF_CREATE") || permissionSet.has("RESERVATION_SELF_CANCEL");
-  const canCancelOwnReservations = permissionSet.has("RESERVATION_SELF_CANCEL");
-  const canReadOperationalReservations =
-    permissionSet.has("RESERVATION_MANAGE_BRANCH") ||
-    permissionSet.has("LOAN_READ_GLOBAL") ||
-    permissionSet.has("REPORT_GLOBAL_READ");
-  const canManageOperationalReservations = permissionSet.has("RESERVATION_MANAGE_BRANCH") || profile?.role === "ADMIN";
-  const canReadOwnFines = permissionSet.has("FINE_SELF_READ");
-  const canReadOperationalFines = permissionSet.has("FINE_READ_BRANCH") || permissionSet.has("FINE_READ_GLOBAL");
-  const canWaiveOperationalFines = permissionSet.has("FINE_WAIVE_BRANCH") || profile?.role === "ADMIN";
-  const canReadUsers =
-    permissionSet.has("USER_READ_GLOBAL") ||
-    permissionSet.has("USER_MANAGE_GLOBAL") ||
-    permissionSet.has("MEMBER_READ_BRANCH");
-  const canManageUsers =
-    permissionSet.has("USER_MANAGE_GLOBAL") ||
-    permissionSet.has("MEMBER_VERIFY_BRANCH") ||
-    permissionSet.has("APPROVAL_BRANCH");
-  const canRegisterStaff =
-    profile?.role === "ADMIN" && profile.accountStatus === "ACTIVE" && permissionSet.has("USER_MANAGE_GLOBAL");
-  const canReadPolicies = permissionSet.has("POLICY_READ") || permissionSet.has("POLICY_MANAGE_GLOBAL");
-  const canManagePolicies = permissionSet.has("POLICY_MANAGE_GLOBAL");
-  const canManageBranches = permissionSet.has("BRANCH_MANAGE_GLOBAL");
-  const canManageInventory =
-    permissionSet.has("COPY_CREATE") || permissionSet.has("COPY_UPDATE") || profile?.role === "ADMIN";
-  const canRequestDisciplineReview = permissionSet.has("DISCIPLINE_REQUEST_BRANCH");
-  const canReadStaffNotifications = Boolean(signedIn && profile && profile.accountStatus === "ACTIVE");
-  const canSendStaffNotifications = Boolean(signedIn && profile && ["BRANCH_MANAGER", "ADMIN"].includes(profile.role));
-  const canBorrowForSelf = Boolean(
-    signedIn &&
-      profile &&
-      profile.role === "MEMBER" &&
-      permissionSet.has("LOAN_SELF_CREATE") &&
-      profile.accountStatus === "ACTIVE" &&
-      profile.membershipStatus === "GOOD_STANDING",
-  );
-  const canAccessOperations =
-    canManageCatalog ||
-    canReadOperationalBorrowings ||
-    canReadOperationalActivity ||
-    canReadOperationalReservations ||
-    canReadOperationalFines ||
-    canReadUsers ||
-    canReadPolicies ||
-    canManageBranches ||
-    canManageInventory ||
-    canRequestDisciplineReview;
-  const roleLabel = profile ? humanizeToken(profile.role) : "Authenticated";
+  const permissions = useMemo(() => deriveAppPermissions(profile, signedIn), [profile, signedIn]);
+  const {
+    canManageCatalog,
+    canDeleteCatalog,
+    canReadPersonalHistory,
+    canReadOperationalBorrowings,
+    canReadOperationalActivity,
+    canReturnOwnBorrowings,
+    canStaffCheckout,
+    canForceReturn,
+    canOverrideBorrowings,
+    canManageBorrowingExceptions,
+    canRenewOwnBorrowings,
+    canReserveForSelf,
+    canReadOwnReservations,
+    canCancelOwnReservations,
+    canReadOperationalReservations,
+    canManageOperationalReservations,
+    canReadOwnFines,
+    canReadOperationalFines,
+    canWaiveOperationalFines,
+    canReadUsers,
+    canManageUsers,
+    canRegisterStaff,
+    canReadPolicies,
+    canManagePolicies,
+    canManageBranches,
+    canManageInventory,
+    canRequestDisciplineReview,
+    canReadStaffNotifications,
+    canSendStaffNotifications,
+    canBorrowForSelf,
+    canAccessOperations,
+    roleLabel,
+  } = permissions;
 
   const inventoryStats = useMemo<InventoryStats>(() => {
     const totalTitles = books.length;
@@ -668,6 +447,8 @@ export default function App() {
     setAllActivityLogs([]);
     setUsers([]);
     setHoldings([]);
+    setCopies([]);
+    setTransfers([]);
     setSelectedUserId(null);
     setSelectedUser(null);
     setDisciplineHistory([]);
@@ -701,38 +482,7 @@ export default function App() {
 
     try {
       const nextProfile = await fetchProfile();
-      const nextPermissions = new Set(nextProfile.permissions);
-
-      const nextCanReadPersonalHistory = nextPermissions.has("LOAN_SELF_READ");
-      const nextCanReadOperationalBorrowings =
-        nextPermissions.has("LOAN_READ_GLOBAL") || nextPermissions.has("REPORT_BRANCH_READ");
-      const nextCanReadOperationalActivity =
-        nextPermissions.has("AUDIT_GLOBAL_READ") ||
-        nextPermissions.has("REPORT_GLOBAL_READ") ||
-        (nextProfile.role === "BRANCH_MANAGER" && nextPermissions.has("REPORT_BRANCH_READ"));
-      const nextCanReadOwnReservations =
-        nextPermissions.has("RESERVATION_SELF_CREATE") || nextPermissions.has("RESERVATION_SELF_CANCEL");
-      const nextCanReadOperationalReservations =
-        nextPermissions.has("RESERVATION_MANAGE_BRANCH") ||
-        nextPermissions.has("LOAN_READ_GLOBAL") ||
-        nextPermissions.has("REPORT_GLOBAL_READ");
-      const nextCanReadOwnFines = nextPermissions.has("FINE_SELF_READ");
-      const nextCanReadOperationalFines =
-        nextPermissions.has("FINE_READ_BRANCH") || nextPermissions.has("FINE_READ_GLOBAL");
-      const nextCanReadUsers =
-        nextPermissions.has("USER_READ_GLOBAL") ||
-        nextPermissions.has("USER_MANAGE_GLOBAL") ||
-        nextPermissions.has("MEMBER_READ_BRANCH");
-      const nextCanRegisterStaff =
-        nextProfile.role === "ADMIN" &&
-        nextProfile.accountStatus === "ACTIVE" &&
-        nextPermissions.has("USER_MANAGE_GLOBAL");
-      const nextCanReadPolicies =
-        nextPermissions.has("POLICY_READ") || nextPermissions.has("POLICY_MANAGE_GLOBAL");
-      const nextCanManageBranches = nextPermissions.has("BRANCH_MANAGE_GLOBAL");
-      const nextCanManageInventory =
-        nextPermissions.has("COPY_CREATE") || nextPermissions.has("COPY_UPDATE") || nextProfile.role === "ADMIN";
-      const nextCanReadNotifications = nextProfile.accountStatus === "ACTIVE";
+      const nextPermissions = deriveAppPermissions(nextProfile, true);
       const nextCanReadBranches = nextProfile.role !== "MEMBER";
 
       const [
@@ -749,24 +499,28 @@ export default function App() {
         nextPolicy,
         nextBranches,
         nextHoldings,
+        nextCopies,
         nextLocations,
         nextNotifications,
+        nextTransfers,
       ] = await Promise.all([
-        nextCanReadPersonalHistory ? fetchBorrowings() : Promise.resolve([]),
-        nextCanReadPersonalHistory ? fetchActivityLogs() : Promise.resolve([]),
-        nextCanReadOperationalBorrowings ? fetchAllBorrowings() : Promise.resolve([]),
-        nextCanReadOperationalActivity ? fetchAllActivityLogs() : Promise.resolve([]),
-        nextCanReadOwnReservations ? fetchReservations() : Promise.resolve([]),
-        nextCanReadOperationalReservations ? fetchAllReservations() : Promise.resolve([]),
-        nextCanReadOwnFines ? fetchFines() : Promise.resolve([]),
-        nextCanReadOperationalFines ? fetchAllFines() : Promise.resolve([]),
-        nextCanReadUsers ? fetchUsers() : Promise.resolve([]),
-        nextCanRegisterStaff ? fetchStaffRegistrationOptions() : Promise.resolve(null),
-        nextCanReadPolicies ? fetchPolicy() : Promise.resolve(null),
+        nextPermissions.canReadPersonalHistory ? fetchBorrowings() : Promise.resolve([]),
+        nextPermissions.canReadPersonalHistory ? fetchActivityLogs() : Promise.resolve([]),
+        nextPermissions.canReadOperationalBorrowings ? fetchAllBorrowings() : Promise.resolve([]),
+        nextPermissions.canReadOperationalActivity ? fetchAllActivityLogs() : Promise.resolve([]),
+        nextPermissions.canReadOwnReservations ? fetchReservations() : Promise.resolve([]),
+        nextPermissions.canReadOperationalReservations ? fetchAllReservations() : Promise.resolve([]),
+        nextPermissions.canReadOwnFines ? fetchFines() : Promise.resolve([]),
+        nextPermissions.canReadOperationalFines ? fetchAllFines() : Promise.resolve([]),
+        nextPermissions.canReadUsers ? fetchUsers() : Promise.resolve([]),
+        nextPermissions.canRegisterStaff ? fetchStaffRegistrationOptions() : Promise.resolve(null),
+        nextPermissions.canReadPolicies ? fetchPolicy() : Promise.resolve(null),
         nextCanReadBranches ? fetchBranches() : Promise.resolve([]),
-        nextCanManageInventory ? fetchInventoryHoldings() : Promise.resolve([]),
-        nextCanManageInventory ? fetchLocations() : Promise.resolve([]),
-        nextCanReadNotifications ? fetchNotifications() : Promise.resolve([]),
+        nextPermissions.canManageInventory ? fetchInventoryHoldings() : Promise.resolve([]),
+        nextPermissions.canManageInventory ? fetchInventoryCopies() : Promise.resolve([]),
+        nextPermissions.canManageInventory ? fetchLocations() : Promise.resolve([]),
+        nextPermissions.canReadStaffNotifications ? fetchNotifications() : Promise.resolve([]),
+        nextPermissions.canReadOperationalReservations ? fetchTransfers() : Promise.resolve([]),
       ]);
 
       setProfile(nextProfile);
@@ -786,8 +540,10 @@ export default function App() {
       setPolicy(nextPolicy);
       setBranches(nextBranches);
       setHoldings(nextHoldings);
+      setCopies(nextCopies);
       setLocations(nextLocations);
       setNotifications(nextNotifications);
+      setTransfers(nextTransfers);
     } catch (error) {
       showError(error);
     }
@@ -938,9 +694,9 @@ export default function App() {
     }
   }
 
-  async function onReserve(bookId: number) {
+  async function onReserve(bookId: number, pickupBranchId?: number | null) {
     try {
-      await createReservation(bookId, selectedPickupBranchId);
+      await createReservation(bookId, pickupBranchId ?? selectedPickupBranchId);
       await refreshAfterMutation("Reservation created successfully.");
     } catch (error) {
       showError(error);
@@ -1477,255 +1233,221 @@ export default function App() {
     }
   }
 
-  if (!ready) {
-    return <main className="app-shell loading-shell">Initializing security context...</main>;
-  }
-
   const detailBorrowings = (canReadOperationalBorrowings ? allBorrowings : borrowings).filter(
     (item) => item.bookId === selectedBook?.id,
   );
   const detailLogs = (canReadOperationalActivity ? allActivityLogs : activityLogs)
     .filter((log) => log.bookId === selectedBook?.id)
     .slice(0, 8);
+  const unreadNotificationCount = notifications.filter((notification) => !notification.readAt).length;
+  const currentUsername = username();
+  const welcomePageProps = {
+    inventoryStats,
+    myBorrowingStats,
+    recommendations: discovery.recommendations,
+    mostBorrowed: discovery.mostBorrowedThisWeek,
+    mostViewed: discovery.mostViewedThisWeek,
+    upcomingBooks,
+    onOpenBook: (bookId: number) => navigateTo(`/books/${bookId}`),
+    onNavigateUpcoming: () => navigateTo("/upcoming"),
+  };
+  const booksWorkspaceProps = {
+    loading,
+    canBorrow: canBorrowForSelf,
+    canReserve: canReserveForSelf,
+    canManageCatalog,
+    query,
+    categoryFilter,
+    tagFilter,
+    categories: filters.categories,
+    tags: filters.tags,
+    books,
+    onQueryChange: setQuery,
+    onCategoryChange: setCategoryFilter,
+    onTagChange: setTagFilter,
+    onBorrow: (bookId: number, holdingId?: number | null) => void onBorrowWithHolding(bookId, holdingId ?? null),
+    onReserve: (bookId: number) => void onReserve(bookId),
+    onStartEdit: startEditBook,
+    onOpenBook: (bookId: number) => navigateTo(`/books/${bookId}`),
+    onNavigateUpcoming: () => navigateTo("/upcoming"),
+  };
+  const upcomingWorkspaceProps = {
+    upcomingBooks,
+    onNavigateBooks: () => navigateTo("/books"),
+  };
+  const userHubProps = {
+    signedIn,
+    canViewPersonalHistory: canReadPersonalHistory,
+    canReturnOwnBorrowings,
+    canRenewOwnBorrowings,
+    canViewReservations: canReadOwnReservations,
+    canCancelOwnReservations,
+    canViewFines: canReadOwnFines,
+    profile,
+    borrowings,
+    reservations,
+    fines,
+    notifications,
+    logs: activityLogs,
+    stats: myBorrowingStats,
+    onLogin: () => void login(),
+    onRegister: () => void register(),
+    onNavigateBooks: () => navigateTo("/books"),
+    onManageAccount: () => void manageAccount(),
+    onOpenBook: (bookId: number) => navigateTo(`/books/${bookId}`),
+    onReturn: (transactionId: number) => void onReturn(transactionId),
+    onRenew: (transactionId: number) => void onRenew(transactionId),
+    onOpenDigitalAccess: (transactionId: number) => void onOpenDigitalAccess(transactionId),
+    onCollectReservation: (reservationId: number) => void onCollectReservation(reservationId),
+    onCancelReservation: (reservationId: number) => void onCancelReservation(reservationId),
+    onMarkNotificationRead: (notificationId: number) => void onMarkNotificationAsRead(notificationId),
+  };
+  const adminPageProps = {
+    roleLabel,
+    canManageCatalog,
+    canDeleteCatalog: Boolean(canDeleteCatalog),
+    canManageInventory,
+    canReadNotifications: canReadStaffNotifications,
+    canSendNotifications: canSendStaffNotifications,
+    canRequestDisciplineReview,
+    canSeeBorrowings: canReadOperationalBorrowings,
+    canStaffCheckout: Boolean(canStaffCheckout),
+    canForceReturn: Boolean(canForceReturn),
+    canOverrideBorrowings: Boolean(canOverrideBorrowings),
+    canManageBorrowingExceptions: Boolean(canManageBorrowingExceptions),
+    canReadReservations: canReadOperationalReservations,
+    canManageReservations: Boolean(canManageOperationalReservations),
+    canReadFines: canReadOperationalFines,
+    canWaiveFines: Boolean(canWaiveOperationalFines),
+    canReadUsers,
+    canManageUsers,
+    canRegisterStaff: Boolean(canRegisterStaff),
+    canReadPolicies,
+    canManagePolicies,
+    canManageBranches: Boolean(canManageBranches),
+    editingBookId,
+    editingBranchId,
+    editingLocationId,
+    editingHoldingId,
+    editingUpcomingBookId,
+    bookForm,
+    branchForm,
+    locationForm,
+    holdingForm,
+    upcomingBookForm,
+    notificationForm,
+    disciplineRequestForm,
+    books,
+    holdings,
+    copies,
+    borrowings: allBorrowings,
+    reservations: allReservations,
+    transfers,
+    fines: allFines,
+    branches,
+    locations,
+    notifications,
+    unreadNotifications: unreadNotificationCount,
+    upcomingBooks,
+    users,
+    selectedUserId,
+    selectedUser,
+    disciplineHistory,
+    accessOptions,
+    accessForm,
+    staffRegistrationOptions,
+    staffRegistrationForm,
+    policy,
+    policyForm,
+    coverPreviewUrl: bookForm.coverImageUrl,
+    onUpdateField: updateBookFormField,
+    onCoverSelected: updateBookCover,
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void onSubmitBookForm(event),
+    onReset: resetBookForm,
+    onStartEdit: startEditBook,
+    onDelete: (book: Book) => void onDeleteBook(book),
+    onUpdateLocationField: updateLocationFormField,
+    onSubmitLocation: (event: FormEvent<HTMLFormElement>) => void onSubmitLocationForm(event),
+    onResetLocation: resetLocationForm,
+    onStartEditLocation: startEditLocation,
+    onUpdateHoldingField: updateHoldingFormField,
+    onSubmitHolding: (event: FormEvent<HTMLFormElement>) => void onSubmitHoldingForm(event),
+    onResetHolding: resetHoldingForm,
+    onStartEditHolding: startEditHolding,
+    onUpdateUpcomingField: updateUpcomingBookFormField,
+    onSubmitUpcoming: (event: FormEvent<HTMLFormElement>) => void onSubmitUpcomingBookForm(event),
+    onResetUpcoming: resetUpcomingBookForm,
+    onStartEditUpcoming: startEditUpcoming,
+    onDeleteUpcoming: (upcomingBook: UpcomingBook) => void onDeleteUpcomingBook(upcomingBook),
+    onUpdateNotificationField: updateNotificationFormField,
+    onSendNotification: () => void onSendStaffNotification(),
+    onUpdateDisciplineRequestField: updateDisciplineRequestField,
+    onSubmitDisciplineRequest: () => void onSubmitDisciplineRequest(),
+    onMarkNotificationRead: (notificationId: number) => void onMarkNotificationAsRead(notificationId),
+    onReturn: (transactionId: number) => void onReturn(transactionId),
+    onStaffCheckout: (userId: number, bookId: number, holdingId?: number | null, reservationId?: number | null) =>
+      void onStaffCheckout(userId, bookId, holdingId ?? null, reservationId ?? null),
+    onOverrideBorrowing: (transactionId: number, dueAt: string | null, reason: string) =>
+      void onOverrideBorrowing(transactionId, dueAt, reason),
+    onRecordBorrowingException: (transactionId: number, action: BorrowingExceptionAction, note: string) =>
+      void onRecordBorrowingException(transactionId, action, note),
+    onPrepareReservation: (reservationId: number, holdingId?: number | null) =>
+      void onPrepareReservation(reservationId, holdingId ?? null),
+    onReadyReservation: (reservationId: number) => void onReadyReservation(reservationId),
+    onExpireReservation: (reservationId: number) => void onExpireReservation(reservationId),
+    onNoShowReservation: (reservationId: number) => void onNoShowReservation(reservationId),
+    onWaiveFine: (fineId: number, note: string) => void onWaiveFine(fineId, note),
+    onSelectUser: setSelectedUserId,
+    onUpdateAccessField: updateAccessField,
+    onSaveAccess: () => void onSaveAccess(),
+    onUpdateStaffRegistrationField: updateStaffRegistrationField,
+    onRegisterStaff: () => void onRegisterStaff(),
+    onApplyUserDiscipline: (userId: number, action: UserDisciplineActionType, reason: UserDisciplineReason, note: string) =>
+      void onApplyUserDiscipline(userId, action, reason, note),
+    onUpdateBranchField: updateBranchFormField,
+    onSubmitBranch: (event: FormEvent<HTMLFormElement>) => void onSubmitBranchForm(event),
+    onResetBranch: resetBranchForm,
+    onStartEditBranch: startEditBranch,
+    onUpdatePolicyField: updatePolicyField,
+    onSavePolicy: () => void onSavePolicy(),
+  };
 
   return (
-    <main className="app-shell">
-      {message ? <div className={`banner banner-${message.tone}`}>{message.text}</div> : null}
-
-      <NavigationBar
-        visible={floatingNavVisible}
-        signedIn={signedIn}
-        canAccessOperations={canAccessOperations}
-        canViewNotifications={canReadStaffNotifications}
-        unreadNotificationCount={notifications.filter((notification) => !notification.readAt).length}
-        username={username()}
-        roleLabel={roleLabel}
-        currentPath={route.name}
-        notificationsOpen={notificationsOpen}
-        onNavigateHome={() => navigateTo("/")}
-        onNavigateBooks={() => navigateTo("/books")}
-        onNavigateUpcoming={() => navigateTo("/upcoming")}
-        onNavigateAccount={() => navigateTo("/me")}
-        onNavigateAdmin={() => navigateTo("/admin")}
-        onToggleNotifications={() => setNotificationsOpen((current) => !current)}
-        onLogin={() => void login()}
-        onRegister={() => void register()}
-        onLogout={() => void logout()}
-      />
-
-      <NotificationTray
-        open={notificationsOpen}
-        notifications={notifications}
-        onMarkRead={(notificationId) => void onMarkNotificationAsRead(notificationId)}
-      />
-
-      {route.name === "home" ? (
-        <WelcomePage
-          inventoryStats={inventoryStats}
-          myBorrowingStats={myBorrowingStats}
-          recommendations={discovery.recommendations}
-          mostBorrowed={discovery.mostBorrowedThisWeek}
-          mostViewed={discovery.mostViewedThisWeek}
-          upcomingBooks={upcomingBooks}
-          onOpenBook={(bookId) => navigateTo(`/books/${bookId}`)}
-          onNavigateUpcoming={() => navigateTo("/upcoming")}
-        />
-      ) : route.name === "books" ? (
-        <BooksWorkspacePage
-          loading={loading}
-          canBorrow={canBorrowForSelf}
-          canReserve={canReserveForSelf}
-          canManageCatalog={canManageCatalog}
-          query={query}
-          categoryFilter={categoryFilter}
-          tagFilter={tagFilter}
-          categories={filters.categories}
-          tags={filters.tags}
-          books={books}
-          onQueryChange={setQuery}
-          onCategoryChange={setCategoryFilter}
-          onTagChange={setTagFilter}
-          onBorrow={(bookId, holdingId) => void onBorrowWithHolding(bookId, holdingId ?? null)}
-          onReserve={(bookId) => void onReserve(bookId)}
-          onStartEdit={startEditBook}
-          onOpenBook={(bookId) => navigateTo(`/books/${bookId}`)}
-          onNavigateUpcoming={() => navigateTo("/upcoming")}
-        />
-      ) : route.name === "upcoming" ? (
-        <UpcomingWorkspacePage upcomingBooks={upcomingBooks} onNavigateBooks={() => navigateTo("/books")} />
-      ) : route.name === "account" ? (
-        <UserHubPage
-          signedIn={signedIn}
-          canViewPersonalHistory={canReadPersonalHistory}
-          canReturnOwnBorrowings={canReturnOwnBorrowings}
-          canRenewOwnBorrowings={canRenewOwnBorrowings}
-          canViewReservations={canReadOwnReservations}
-          canCancelOwnReservations={canCancelOwnReservations}
-          canViewFines={canReadOwnFines}
-          profile={profile}
-          borrowings={borrowings}
-          reservations={reservations}
-          fines={fines}
-          notifications={notifications}
-          logs={activityLogs}
-          stats={myBorrowingStats}
-          onLogin={() => void login()}
-          onRegister={() => void register()}
-          onNavigateBooks={() => navigateTo("/books")}
-          onManageAccount={() => void manageAccount()}
-          onOpenBook={(bookId) => navigateTo(`/books/${bookId}`)}
-          onReturn={(transactionId) => void onReturn(transactionId)}
-          onRenew={(transactionId) => void onRenew(transactionId)}
-          onOpenDigitalAccess={(transactionId) => void onOpenDigitalAccess(transactionId)}
-          onCollectReservation={(reservationId) => void onCollectReservation(reservationId)}
-          onCancelReservation={(reservationId) => void onCancelReservation(reservationId)}
-          onMarkNotificationRead={(notificationId) => void onMarkNotificationAsRead(notificationId)}
-        />
-      ) : route.name === "admin" ? (
-        canAccessOperations ? (
-          <AdminPage
-            roleLabel={roleLabel}
-            canManageCatalog={canManageCatalog}
-            canDeleteCatalog={Boolean(canDeleteCatalog)}
-            canManageInventory={canManageInventory}
-            canReadNotifications={canReadStaffNotifications}
-            canSendNotifications={canSendStaffNotifications}
-            canRequestDisciplineReview={canRequestDisciplineReview}
-            canSeeBorrowings={canReadOperationalBorrowings}
-            canStaffCheckout={Boolean(canStaffCheckout)}
-            canForceReturn={Boolean(canForceReturn)}
-            canOverrideBorrowings={Boolean(canOverrideBorrowings)}
-            canManageBorrowingExceptions={Boolean(canManageBorrowingExceptions)}
-            canReadReservations={canReadOperationalReservations}
-            canManageReservations={Boolean(canManageOperationalReservations)}
-            canReadFines={canReadOperationalFines}
-            canWaiveFines={Boolean(canWaiveOperationalFines)}
-            canReadUsers={canReadUsers}
-            canManageUsers={canManageUsers}
-            canRegisterStaff={Boolean(canRegisterStaff)}
-            canReadPolicies={canReadPolicies}
-            canManagePolicies={canManagePolicies}
-            canManageBranches={Boolean(canManageBranches)}
-            editingBookId={editingBookId}
-            editingBranchId={editingBranchId}
-            editingLocationId={editingLocationId}
-            editingHoldingId={editingHoldingId}
-            editingUpcomingBookId={editingUpcomingBookId}
-            bookForm={bookForm}
-            branchForm={branchForm}
-            locationForm={locationForm}
-            holdingForm={holdingForm}
-            upcomingBookForm={upcomingBookForm}
-            notificationForm={notificationForm}
-            disciplineRequestForm={disciplineRequestForm}
-            books={books}
-            holdings={holdings}
-            borrowings={allBorrowings}
-            reservations={allReservations}
-            fines={allFines}
-            branches={branches}
-            locations={locations}
-            notifications={notifications}
-            unreadNotifications={notifications.filter((notification) => !notification.readAt).length}
-            upcomingBooks={upcomingBooks}
-            users={users}
-            selectedUserId={selectedUserId}
-            selectedUser={selectedUser}
-            disciplineHistory={disciplineHistory}
-            accessOptions={accessOptions}
-            accessForm={accessForm}
-            staffRegistrationOptions={staffRegistrationOptions}
-            staffRegistrationForm={staffRegistrationForm}
-            policy={policy}
-            policyForm={policyForm}
-            coverPreviewUrl={bookForm.coverImageUrl}
-            onUpdateField={updateBookFormField}
-            onCoverSelected={updateBookCover}
-            onSubmit={(event) => void onSubmitBookForm(event)}
-            onReset={resetBookForm}
-            onStartEdit={startEditBook}
-            onDelete={(book) => void onDeleteBook(book)}
-            onUpdateLocationField={updateLocationFormField}
-            onSubmitLocation={(event) => void onSubmitLocationForm(event)}
-            onResetLocation={resetLocationForm}
-            onStartEditLocation={startEditLocation}
-            onUpdateHoldingField={updateHoldingFormField}
-            onSubmitHolding={(event) => void onSubmitHoldingForm(event)}
-            onResetHolding={resetHoldingForm}
-            onStartEditHolding={startEditHolding}
-            onUpdateUpcomingField={updateUpcomingBookFormField}
-            onSubmitUpcoming={(event) => void onSubmitUpcomingBookForm(event)}
-            onResetUpcoming={resetUpcomingBookForm}
-            onStartEditUpcoming={startEditUpcoming}
-            onDeleteUpcoming={(upcomingBook) => void onDeleteUpcomingBook(upcomingBook)}
-            onUpdateNotificationField={updateNotificationFormField}
-            onSendNotification={() => void onSendStaffNotification()}
-            onUpdateDisciplineRequestField={updateDisciplineRequestField}
-            onSubmitDisciplineRequest={() => void onSubmitDisciplineRequest()}
-            onMarkNotificationRead={(notificationId) => void onMarkNotificationAsRead(notificationId)}
-            onReturn={(transactionId) => void onReturn(transactionId)}
-            onStaffCheckout={(userId, bookId, holdingId, reservationId) =>
-              void onStaffCheckout(userId, bookId, holdingId ?? null, reservationId ?? null)
-            }
-            onOverrideBorrowing={(transactionId, dueAt, reason) => void onOverrideBorrowing(transactionId, dueAt, reason)}
-            onRecordBorrowingException={(transactionId, action, note) =>
-              void onRecordBorrowingException(transactionId, action, note)
-            }
-            onPrepareReservation={(reservationId, holdingId) => void onPrepareReservation(reservationId, holdingId ?? null)}
-            onReadyReservation={(reservationId) => void onReadyReservation(reservationId)}
-            onExpireReservation={(reservationId) => void onExpireReservation(reservationId)}
-            onNoShowReservation={(reservationId) => void onNoShowReservation(reservationId)}
-            onWaiveFine={(fineId, note) => void onWaiveFine(fineId, note)}
-            onSelectUser={setSelectedUserId}
-            onUpdateAccessField={updateAccessField}
-            onSaveAccess={() => void onSaveAccess()}
-            onUpdateStaffRegistrationField={updateStaffRegistrationField}
-            onRegisterStaff={() => void onRegisterStaff()}
-            onApplyUserDiscipline={(userId, action, reason, note) =>
-              void onApplyUserDiscipline(userId, action, reason, note)
-            }
-            onUpdateBranchField={updateBranchFormField}
-            onSubmitBranch={(event) => void onSubmitBranchForm(event)}
-            onResetBranch={resetBranchForm}
-            onStartEditBranch={startEditBranch}
-            onUpdatePolicyField={updatePolicyField}
-            onSavePolicy={() => void onSavePolicy()}
-          />
-        ) : (
-          <section className="surface forbidden-page">
-            <p className="section-label">Restricted</p>
-            <h2>Operations access is required for this page.</h2>
-            <p className="hero-text">
-              The operations workspace is isolated from the public catalog. Sign in with a staff or
-              admin account to manage inventory, access, and circulation operations.
-            </p>
-          </section>
-        )
-      ) : selectedBook ? (
-        <BookDetailPage
-          book={selectedBook}
-          canBorrow={canBorrowForSelf}
-          canReserve={canReserveForSelf}
-          canManageCatalog={canManageCatalog}
-          pickupBranches={publicBranches}
-          pickupBranchId={selectedPickupBranchId}
-          relatedBorrowings={detailBorrowings}
-          relatedLogs={detailLogs}
-          onBack={() => navigateTo("/books")}
-          onBorrow={(bookId, holdingId) => void onBorrowWithHolding(bookId, holdingId ?? null)}
-          onReserve={(bookId) => void onReserve(bookId)}
-          onPickupBranchChange={setSelectedPickupBranchId}
-          onStartEdit={(book) => {
-            startEditBook(book);
-            navigateTo("/admin");
-          }}
-        />
-      ) : (
-        <section className="surface">
-          <p className="section-label">Book Detail</p>
-          <h2>Loading selected book...</h2>
-        </section>
-      )}
-    </main>
+    <AppView
+      ready={ready}
+      message={message}
+      signedIn={signedIn}
+      floatingNavVisible={floatingNavVisible}
+      notificationsOpen={notificationsOpen}
+      notifications={notifications}
+      unreadNotificationCount={unreadNotificationCount}
+      route={route}
+      currentUsername={currentUsername}
+      permissions={permissions}
+      welcomePageProps={welcomePageProps}
+      booksWorkspaceProps={booksWorkspaceProps}
+      upcomingWorkspaceProps={upcomingWorkspaceProps}
+      userHubProps={userHubProps}
+      adminPageProps={adminPageProps}
+      selectedBook={selectedBook}
+      publicBranches={publicBranches}
+      selectedPickupBranchId={selectedPickupBranchId}
+      detailBorrowings={detailBorrowings}
+      detailLogs={detailLogs}
+      onNavigateHome={() => navigateTo("/")}
+      onNavigateBooks={() => navigateTo("/books")}
+      onNavigateUpcoming={() => navigateTo("/upcoming")}
+      onNavigateAccount={() => navigateTo("/me")}
+      onNavigateAdmin={() => navigateTo("/admin")}
+      onToggleNotifications={() => setNotificationsOpen((current) => !current)}
+      onLogin={() => void login()}
+      onRegister={() => void register()}
+      onLogout={() => void logout()}
+      onMarkNotificationRead={(notificationId) => void onMarkNotificationAsRead(notificationId)}
+      onBorrowWithHolding={(bookId, holdingId) => void onBorrowWithHolding(bookId, holdingId ?? null)}
+      onReserve={(bookId, pickupBranchId) => void onReserve(bookId, pickupBranchId ?? null)}
+      onPickupBranchChange={setSelectedPickupBranchId}
+      onStartEditBook={startEditBook}
+    />
   );
 }

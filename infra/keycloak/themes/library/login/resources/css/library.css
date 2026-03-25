@@ -24,6 +24,8 @@ body.login-pf {
   border: 1px solid rgba(43, 56, 52, 0.1);
   background: rgba(255, 251, 245, 0.93);
   box-shadow: 0 24px 60px rgba(67, 54, 37, 0.18);
+  max-width: 500px;
+  margin: 0 auto;
 }
 
 .login-pf-header h1#kc-page-title {

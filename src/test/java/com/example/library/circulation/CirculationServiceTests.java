@@ -223,7 +223,7 @@ class CirculationServiceTests {
         ReflectionTestUtils.setField(location, "id", 30L);
         ReflectionTestUtils.setField(holding, "id", 100L);
         ReflectionTestUtils.setField(reservation, "id", 400L);
-        reservation.markReadyForPickup(holding, Instant.now().minusSeconds(300), Instant.now().plusSeconds(3600));
+        reservation.markReadyForPickup(holding, null, Instant.now().minusSeconds(300), Instant.now().plusSeconds(3600));
 
         when(currentUserService.getCurrentUser()).thenReturn(branchManager);
         when(currentUserService.getCurrentUserEntity()).thenReturn(actor);

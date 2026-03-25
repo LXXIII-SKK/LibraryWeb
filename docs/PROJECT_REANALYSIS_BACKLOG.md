@@ -4,308 +4,257 @@ Audit date: 2026-03-23
 
 Audit basis:
 
-- current backend modules and migrations
-- current frontend SPA and startup config
-- setup documentation and helper scripts
-- automated checks run during this review
+- current backend modules, migrations, and tests
+- current frontend SPA, route split, and test setup
+- setup, operations, and public-test documentation
+- verification commands run during this pass
 
 Verification completed in this pass:
 
 - `./mvnw.cmd test`
+- `npm test` in `frontend`
 - `npm run build` in `frontend`
-- `.\scripts\start-public-test.ps1 -PublicUrl https://example.ngrok-free.app -WhatIf`
-- `cmd /c scripts\start-public-test.cmd -PublicUrl https://example.ngrok-free.app -WhatIf`
+- `npm run test:smoke` in `frontend`
+- `cmd /c scripts\verify-migrations.cmd -EnvFile compose.env.example`
 
-## Current Snapshot
+Verification notes:
 
-What is clearly in good shape right now:
+- backend tests passed: 93 tests, 0 failures, 9 skipped
+- skipped tests are the Testcontainers-backed integration suite because Docker is not currently reachable from this environment
+- frontend unit tests passed
+- frontend production build passed
+- browser smoke tests passed
+- migration verification failed against the currently running local database: latest repo migration is `21`, live schema version is `19`
 
-- backend unit and modulith tests pass
-- frontend production build passes
-- the public-test path for one-origin `ngrok` exposure is documented and the script dry-run behaves as expected
-- staff/admin trust-on-first-login is blocked
-- reservation workflow now covers pickup branch, prepare, ready, collect, no-show, and expire states
-- deterministic demo Keycloak subject IDs are now part of the local story
-- weekly discovery ranking now uses database-backed queries
-- controller-level security tests now cover representative public and protected HTTP paths
-- core mutation audit coverage now includes catalog, branch, location, holding, upcoming-book, and notification activity
-- CI now enforces backend tests plus frontend build
-- runtime verification now has a single command for Docker or local-Vite URL checks
-- the OTEL collector now accepts metrics as well as traces
+## Recheck Of The Previous Backlog
 
-What changed during this review:
+Resolved since the previous rewrite:
 
-- local frontend startup was normalized so `npm run dev` now matches the documented Vite port `5173`
-- frontend API fallback now uses `http://localhost:8080` when `VITE_API_BASE_URL` is unset
-- explicit blank `VITE_API_BASE_URL` still keeps same-origin `/api` mode available for the single-origin public-test flow
-- `scripts\verify-runtime.cmd` now validates frontend, backend, and Keycloak URLs in one command
-- `NotificationService` now queries only visible notifications instead of loading the full notification table
-- GitHub Actions CI now runs backend tests and frontend build
+- Windows Command Prompt, single-port `ngrok` setup is documented and scripted
+- admin-only staff registration is implemented in the backend and admin UI
+- database-backed integration coverage exists as a baseline
+- frontend interaction coverage exists as a baseline
+- browser smoke coverage exists as a baseline
+- staff-desk flows now cover ready-hold checkout, override-with-reason, and item exceptions
+- reservation fulfillment now uses a real transfer model
+- physical inventory is now copy-backed rather than purely aggregate-count based
+- `App.tsx` has already been partially decomposed through `AppView` and related frontend modules
+- migration verification, backup/restore guidance, and env-based secret handling are implemented
 
-## Closed Or Verified
+Narrowed but still active:
 
-These items should not stay on the active backlog:
+- identity governance is improved, but repair and synchronization flows are still incomplete
+- copy-level inventory exists, but copy-level operations are still thin
+- transfer tracking exists, but operator-facing transfer handling is still shallow
+- frontend structure is improved, but the main orchestration hotspot still lives in `frontend/src/App.tsx`
+- operations hardening is better, but migration freshness and telemetry are not yet fully production-grade
 
-- one-origin `ngrok` public-test setup
-- frontend production build health
-- backend unit-test suite health
-- deterministic demo-user Keycloak ID alignment
-- duplicate book-view suppression within the current reset cycle
-- query-based notification visibility loading
-- baseline controller/security integration tests
-- one-command runtime verification
-- baseline CI enforcement
-- OTEL collector metrics ingestion support
+## Current Findings
 
-## Priority 1: Reliability And Control Plane
+The highest-signal problems in the repo right now are:
 
-### P1.1 Runtime verification is better, but startup modes are still not fully automated
+- `docs/PROJECT_REANALYSIS_BACKLOG.md` was stale and still listed already shipped work as open
+- `PROJECT_DOCUMENTATION.md` is now materially out of date and still claims copy-level transfer workflows are not implemented
+- the currently running local database is behind the repo schema (`19` vs `21`)
+- `frontend/src/App.tsx` is still the primary data-loading and mutation-orchestration hub even after the route/view split
+- copy-backed inventory exists, but there is no dedicated per-copy admin workflow for receiving, reconciliation, repair, or manual exception handling
+- transfer records exist, but the UI is still mostly a read-only transfer ledger rather than an operational transfer desk
+- the integration and browser test layers exist, but they do not yet cover the most failure-prone circulation and transfer workflows
+- the test suite emits a future-compatibility warning because Mockito still relies on dynamic self-attachment on JDK 25
 
-Status now:
+## Priority 1: Correctness And Operational Trust
 
-- the immediate config mismatch was fixed in this pass
-- `scripts\verify-runtime.cmd` now validates the documented frontend, backend, and Keycloak URLs together
+### P1.1 Update the stale project documentation
 
-Remaining gap:
+Current gap:
 
-- there is still no automated end-to-end workflow that boots each supported runtime mode and proves user-visible flows
-- local JVM mode, Docker mode, and public-test mode still rely on operator sequencing
+- `PROJECT_DOCUMENTATION.md` still says copy/barcode transfer workflows and pickup-branch transfer routing are not implemented
+- the previous backlog document also still marked several completed items as open
 
 Why it matters:
 
-- this project has multiple runtime modes: Docker, local JVM, local Vite, and public test through `ngrok`
-- configuration drift is likely to reappear without a lightweight startup check
+- the docs now misstate shipped behavior
+- this creates review, onboarding, and operator error risk
 
 Relevant areas:
 
-- `frontend/src/api.ts`
-- `frontend/vite.config.ts`
+- `PROJECT_DOCUMENTATION.md`
+- `README.md`
 - `SETUP_GUIDE.md`
+- `docs/PROJECT_REANALYSIS_BACKLOG.md`
 
-### P1.2 Identity governance is still split across Keycloak and local access state
+### P1.2 Finish identity repair and synchronization workflows
 
-What is implemented:
+What is already in place:
 
 - Keycloak owns authentication
-- local `app_user` data owns role, account status, membership status, and branch assignment
-- automatic first-login provisioning is limited to member identities
-- automatic username relink is limited to seeded demo identities
+- local `app_user` state owns role, status, and branch assignment
+- staff accounts can be created only by admins
+- non-member trust-on-first-login is blocked
 
-What is missing:
+What is still missing:
 
-- an explicit provisioning flow for staff and admin users
-- a supported reassignment/rebinding workflow when a real identity changes in Keycloak
-- a synchronization strategy between Keycloak role data and local access state
-
-Why it matters:
-
-- the current model is safe enough for demos, but still operationally fragile
-- production support would depend on manual coordination across two authority systems
+- an admin workflow to rebind a local account to a different Keycloak subject when recovery is required
+- a drift check or repair view for mismatches between Keycloak identities and local access rows
+- a documented authority model for what should happen if Keycloak role assignments drift away from local application state
 
 Relevant areas:
 
 - `src/main/java/com/example/library/identity/CurrentUserService.java`
 - `src/main/java/com/example/library/identity/AccessManagementService.java`
+- `src/main/java/com/example/library/identity/StaffRegistrationService.java`
 - `infra/keycloak/realm-library.json`
 
-### P1.3 Security confidence is improved, but still not full-stack
+### P1.3 Enforce migration freshness more aggressively
 
-What is verified:
+Current gap:
 
-- service tests exist for catalog, circulation, discovery, history, identity, and notifications
-- modulith structure verification exists
-- controller/security tests now cover representative protected and public endpoints
-
-What is still missing:
-
-- database-backed integration tests for Flyway and repository behavior
-- committed frontend interaction tests
-- browser end-to-end coverage for login, borrowing, reservations, and access-management flows
+- the repo now has verification tooling, but the currently running local database is still behind the latest schema
+- supported runtime modes still depend on operator sequencing rather than a stronger startup or release gate
 
 Why it matters:
 
-- most remaining risk is now in cross-layer authorization and workflow integration
-- the current test suite does not prove the HTTP boundary is enforcing the intended rules
+- the codebase and the running environment can silently diverge
+- the transfer/copy-level changes in `V20` and `V21` are not optional if that environment is expected to reflect the current code
 
 Relevant areas:
 
-- `src/test/java/com/example/library`
-- `frontend/package.json`
-
-### P1.4 Audit coverage is broader, but still not forensic-grade
-
-What is logged already:
-
-- borrow, return, renew, reservation, fine waiver, access, policy, and book-view activity
-- catalog, branch, location, holding, upcoming-book, and notification create/read activity
-
-What is not yet covered well:
-
-- copy-level state transitions
-- settlement and exception workflows that do not yet exist in the domain
-- richer structured before/after payloads beyond human-readable messages
-
-Why it matters:
-
-- the product now supports more operational changes than the audit log can fully explain
-- this is a control and supportability gap, not just a reporting gap
-
-Relevant areas:
-
-- `src/main/java/com/example/library/history/ActivityLogService.java`
-- `src/main/java/com/example/library/branch`
-- `src/main/java/com/example/library/inventory`
-- `src/main/java/com/example/library/notification`
-- `src/main/java/com/example/library/upcoming`
+- `scripts/verify-migrations.cmd`
+- `docs/OPERATIONS_RUNBOOK.md`
+- `src/main/resources/db/migration`
+- `compose.yaml`
 
 ## Priority 2: Workflow Depth
 
-### P2.1 Staff circulation is usable but not service-desk complete
+### P2.1 Build real copy-level operations, not just copy-level persistence
 
-Missing next:
+What exists:
 
-- ready-reservation checkout completion in the staff UI
-- due-date or renewal override with reason capture
-- lost, damaged, claimed-returned, and maintenance states
-- settlement handling for damaged or lost items
+- physical holdings now create and use tracked copies
+- copies have barcodes, statuses, and branch/location state
+
+What is still missing:
+
+- dedicated per-copy admin endpoints for manual adjustments
+- receiving, stock-check, and reconciliation workflows
+- repair/quarantine/maintenance style handling
+- better copy-history visibility for support staff
+
+Relevant areas:
+
+- `src/main/java/com/example/library/inventory/InventoryController.java`
+- `src/main/java/com/example/library/inventory/InventoryService.java`
+- `src/main/java/com/example/library/inventory/BookCopy.java`
+- `frontend/src/components/InventoryPanel.tsx`
+
+### P2.2 Turn transfer tracking into an operator workflow
+
+What exists:
+
+- transfers are persisted and exposed through the API
+- reservation preparation and ready-for-pickup flows can drive transfer state
+
+What is still missing:
+
+- a receiving/worklist experience for branch staff
+- explicit operator actions for transfer exceptions, cancellations, and late movement
+- clearer transfer handling beyond the reservation-side happy path
+
+Relevant areas:
+
+- `src/main/java/com/example/library/circulation/TransferService.java`
+- `src/main/java/com/example/library/circulation/TransferController.java`
+- `frontend/src/components/TransfersPanel.tsx`
+- `frontend/src/components/AdminConsole.tsx`
+
+### P2.3 Complete post-exception desk workflows
+
+What exists:
+
+- ready-hold checkout, override renewals, and borrowing exceptions are implemented
+
+What is still missing:
+
+- follow-on settlement for lost or damaged items
+- repair or disposition workflows after an item exception is recorded
+- support for states beyond the current exception set such as maintenance or quarantine
 
 Relevant areas:
 
 - `src/main/java/com/example/library/circulation/CirculationService.java`
+- `src/main/java/com/example/library/inventory/BookCopyStatus.java`
+- `src/main/java/com/example/library/history/ActivityLogService.java`
 - `frontend/src/components/AdminConsole.tsx`
-- `src/main/java/com/example/library/circulation/BorrowStatus.java`
 
-### P2.2 Reservation transfer is still logical rather than physical
+## Priority 3: Frontend And Test Maturity
 
-Missing next:
+### P3.1 Finish decomposing `frontend/src/App.tsx`
 
-- transfer entity or queue
-- explicit movement timestamps
-- transfer worklists
-- ETA calculation
-- real holding branch/location movement during transfer
+Current hotspot:
 
-Relevant areas:
-
-- `src/main/java/com/example/library/circulation/ReservationService.java`
-- `src/main/java/com/example/library/circulation/Reservation.java`
-- `src/main/java/com/example/library/inventory/BookHolding.java`
-
-### P2.3 Inventory is still title-and-quantity based, not copy based
-
-Missing next:
-
-- barcode or item identity
-- per-copy condition and status
-- copy-level transfer history
-- stock-check and reconciliation flows
-- item-level auditability
-
-Relevant areas:
-
-- `src/main/java/com/example/library/inventory/InventoryService.java`
-- `src/main/java/com/example/library/inventory/BookHolding.java`
-
-### P2.4 Branch, location, and holding lifecycle remains CRUD-light
-
-Missing next:
-
-- branch closure workflow
-- archive/retire rules
-- quarantine/repair/cart style locations
-- location retirement rules
-- holding retirement history
-
-Relevant areas:
-
-- `src/main/java/com/example/library/branch/BranchService.java`
-- `src/main/java/com/example/library/inventory/LocationService.java`
-- `src/main/java/com/example/library/inventory/InventoryService.java`
-
-## Priority 3: Product And Frontend Maturity
-
-### P3.1 The frontend shell is still too centralized
-
-Observed hotspot:
-
-- `frontend/src/App.tsx` still owns a large share of route wiring, permission derivation, data loading, and mutation refresh orchestration
+- the file is still large and owns most state, data loading, refresh sequencing, and mutation handlers
 
 Why it matters:
 
-- the UI currently works, but this is the clearest maintainability bottleneck on the frontend side
+- the route/view split improved readability, but the orchestration burden is still concentrated in one file
+- this is the clearest remaining frontend maintainability bottleneck
 
 Relevant areas:
 
 - `frontend/src/App.tsx`
+- `frontend/src/app/AppView.tsx`
+- `frontend/src/app/permissions.ts`
+- `frontend/src/app/forms.ts`
 
-### P3.2 Member self-service is functional but still thin on guidance
+### P3.2 Deepen integration and browser coverage around circulation
 
-Missing next:
+What exists:
 
-- richer explanations for account restrictions
-- clearer recovery and password guidance inside the app shell
-- reminder scheduling
-- better borrowing and reservation status messaging
+- Postgres-backed integration test scaffolding exists
+- frontend unit tests exist
+- Playwright smoke tests exist
+
+What is still missing:
+
+- DB-backed integration tests for circulation, inventory, and transfer workflows
+- browser tests for signed-in borrowing, reservations, ready holds, staff checkout, and transfer handling
+- integration coverage for the Keycloak-admin staff provisioning path beyond service-level mocking
 
 Relevant areas:
 
-- `frontend/src/components/UserHubPage.tsx`
+- `src/test/java/com/example/library/integration`
+- `src/test/java/com/example/library/circulation`
+- `frontend/e2e/library.smoke.spec.ts`
+- `frontend/src/app/AppView.test.tsx`
+
+### P3.3 Complete member onboarding and self-service account management
+
+Current gap:
+
+- self-registration in Keycloak still does not create a ready-to-use library member account
+- profile/password management is still delegated out to Keycloak instead of being explained more clearly in-app
+
+Relevant areas:
+
+- `src/main/java/com/example/library/identity/CurrentUserService.java`
+- `infra/keycloak/realm-library.json`
 - `frontend/src/components/ProfilePanel.tsx`
-- `src/main/java/com/example/library/notification`
+- `frontend/src/components/UserHubPage.tsx`
 
-### P3.3 Notifications are useful, but not yet a fuller communications system
+## Priority 4: Operations And Tooling
 
-Missing next:
+### P4.1 Move observability beyond debug export
 
-- admin-authored direct user targeting in the UI
-- priority/severity
-- scheduled reminders
-- channels beyond in-app
+Current state:
 
-Relevant areas:
+- OTEL traces and metrics are wired into the collector
+- the collector still exports only to the debug exporter
 
-- `frontend/src/components/NotificationsPanel.tsx`
-- `frontend/src/components/NotificationTray.tsx`
-- `src/main/java/com/example/library/notification/NotificationService.java`
+What is still missing:
 
-### P3.4 Upcoming books are still acquisition-lite
-
-Missing next:
-
-- approval workflow
-- vendor/source metadata
-- procurement status
-- cancel/defer with reasons
-- conversion of upcoming entries into catalog books and holdings
-
-Relevant areas:
-
-- `src/main/java/com/example/library/upcoming/UpcomingBookService.java`
-- `frontend/src/components/UpcomingBooksPanel.tsx`
-
-## Priority 4: Delivery And Operations
-
-### P4.1 CI baseline exists, but environment hardening remains unfinished
-
-Missing next:
-
-- migration verification in CI
-- backup/restore guidance
-- documented secret handling beyond local demo defaults
-
-Relevant areas:
-
-- `pom.xml`
-- `frontend/package.json`
-- `compose.yaml`
-
-### P4.2 Observability is cleaner, but still minimal
-
-Known state:
-
-- tracing is wired for container runs
-- the collector now accepts metrics as well as traces
-- the environment still exports only to debug-style collector output and is not yet an operations-grade telemetry setup
+- a real trace/metrics backend
+- dashboards, useful labels, and alertable signals
+- an operator story beyond local inspection
 
 Relevant areas:
 
@@ -313,25 +262,29 @@ Relevant areas:
 - `infra/otel/collector-config.yaml`
 - `compose.yaml`
 
+### P4.2 Future-proof the test runtime
+
+Current gap:
+
+- the test run on JDK 25 warns that Mockito is dynamically attaching an agent
+- that behavior is scheduled to become disallowed by default in a future JDK
+
+Why it matters:
+
+- the suite is green today, but the build is carrying a predictable future-upgrade failure mode
+
+Relevant areas:
+
+- `pom.xml`
+- `src/test/java`
+
 ## Recommended Execution Order
 
-1. Design the staff/admin provisioning flow between Keycloak and local access state.
-2. Add database-backed integration coverage plus browser-level smoke tests.
-3. Complete staff-desk workflows around ready holds, overrides, and item exceptions.
-4. Introduce a real transfer model, then move toward copy-level inventory.
-5. Break down `App.tsx` and add frontend interaction coverage.
-6. Harden operations with migration verification, backup/restore guidance, and secret management.
-
-## ngrok Reference
-
-Existing `ngrok` startup guidance already exists here:
-
-- `README.md`
-- `SETUP_GUIDE.md`
-- `PROJECT_DOCUMENTATION.md`
-- `scripts/README.md`
-
-Current recommendation:
-
-- treat `scripts/README.md` as the shortest operational reference
-- treat `SETUP_GUIDE.md` as the broader onboarding guide
+1. Update stale project documentation so it matches the shipped system.
+2. Add identity rebind and drift-repair workflows for Keycloak/local access state.
+3. Promote migration freshness from a helper script to a stricter operational gate.
+4. Add real copy receiving, reconciliation, and manual copy-management operations.
+5. Add operator-facing transfer desk workflows.
+6. Continue breaking down `frontend/src/App.tsx` into domain-level data hooks and action modules.
+7. Expand integration and browser coverage around signed-in circulation and transfer paths.
+8. Move telemetry off the debug exporter and future-proof Mockito/JDK test startup.

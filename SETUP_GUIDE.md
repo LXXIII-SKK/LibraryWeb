@@ -23,13 +23,21 @@ Optional:
 
 From the project root:
 
-```bash
+```cmd
+copy compose.env.example .env
+notepad .env
 docker compose up -d --build
 ```
 
+Important:
+
+- `.env` is now the local source of Docker/runtime secrets
+- `compose.env.example` is only a sample file
+- do not commit `.env`
+
 If you need a clean database reset:
 
-```bash
+```cmd
 docker compose down -v
 docker compose up -d --build
 ```
@@ -243,6 +251,24 @@ If the frontend is running locally through Vite on `5173`:
 scripts\verify-runtime.cmd vite
 ```
 
+Verify Flyway migration state:
+
+```cmd
+scripts\verify-migrations.cmd
+```
+
+Create a database backup:
+
+```cmd
+scripts\backup-db.cmd
+```
+
+Restore a database backup:
+
+```cmd
+scripts\restore-db.cmd backups\library-before-upgrade.sql
+```
+
 ## 7.1 Public Test With ngrok
 
 Use this when you want external testers to open the current stack through public HTTPS URLs.
@@ -318,6 +344,8 @@ select * from reservation;
 select * from fine_record;
 select * from activity_log;
 ```
+
+Operational guidance for backups, restores, and secrets: [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md)
 
 ## 9. Troubleshooting
 

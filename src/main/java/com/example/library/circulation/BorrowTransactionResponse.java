@@ -9,6 +9,8 @@ public record BorrowTransactionResponse(
         Long bookId,
         String bookTitle,
         Long holdingId,
+        Long copyId,
+        String copyBarcode,
         HoldingFormat holdingFormat,
         String branchName,
         String locationName,
@@ -32,12 +34,18 @@ public record BorrowTransactionResponse(
                 transaction.getBook().getId(),
                 transaction.getBook().getTitle(),
                 transaction.getHolding() != null ? transaction.getHolding().getId() : null,
+                transaction.getCopy() != null ? transaction.getCopy().getId() : null,
+                transaction.getCopy() != null ? transaction.getCopy().getBarcode() : null,
                 transaction.getHolding() != null ? transaction.getHolding().getFormat() : null,
-                transaction.getHolding() != null && transaction.getHolding().getBranch() != null
-                        ? transaction.getHolding().getBranch().getName()
-                        : null,
-                transaction.getHolding() != null && transaction.getHolding().getLocation() != null
-                        ? transaction.getHolding().getLocation().getName()
+                transaction.getCopy() != null && transaction.getCopy().getCurrentBranch() != null
+                        ? transaction.getCopy().getCurrentBranch().getName()
+                        : transaction.getHolding() != null && transaction.getHolding().getBranch() != null
+                                ? transaction.getHolding().getBranch().getName()
+                                : null,
+                transaction.getCopy() != null && transaction.getCopy().getCurrentLocation() != null
+                        ? transaction.getCopy().getCurrentLocation().getName()
+                        : transaction.getHolding() != null && transaction.getHolding().getLocation() != null
+                                ? transaction.getHolding().getLocation().getName()
                         : null,
                 transaction.getHolding() != null && transaction.getHolding().hasOnlineAccess(),
                 transaction.getUser().getId(),

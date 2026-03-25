@@ -15,6 +15,7 @@ import com.example.library.identity.AppUser;
 import com.example.library.identity.AuthorizationService;
 import com.example.library.identity.CurrentUser;
 import com.example.library.identity.CurrentUserService;
+import com.example.library.inventory.BookCopy;
 import com.example.library.inventory.BookHolding;
 import com.example.library.inventory.HoldingFormat;
 import com.example.library.inventory.InventoryService;
@@ -36,6 +37,7 @@ public class ReservationService {
     private final AuthorizationService authorizationService;
     private final PolicyService policyService;
     private final InventoryService inventoryService;
+    private final TransferService transferService;
     private final NotificationService notificationService;
     private final ApplicationEventPublisher applicationEventPublisher;
 
@@ -48,6 +50,7 @@ public class ReservationService {
             AuthorizationService authorizationService,
             PolicyService policyService,
             InventoryService inventoryService,
+            TransferService transferService,
             NotificationService notificationService,
             ApplicationEventPublisher applicationEventPublisher) {
         this.reservationRepository = reservationRepository;
@@ -58,6 +61,7 @@ public class ReservationService {
         this.authorizationService = authorizationService;
         this.policyService = policyService;
         this.inventoryService = inventoryService;
+        this.transferService = transferService;
         this.notificationService = notificationService;
         this.applicationEventPublisher = applicationEventPublisher;
     }
@@ -125,7 +129,7 @@ public class ReservationService {
                 .contains(reservation.getStatus())) {
             throw new IllegalArgumentException("Only open reservations can be cancelled");
         }
-        releaseReservedHoldingIfPresent(reservation);
+        releaseReservedHoldingIfPresent(reservation, false);
         reservation.cancel(Instant.now());
         applicationEventPublisher.publishEvent(new ReservationCancelledEvent(
                 currentUser.id(),
@@ -154,7 +158,7 @@ public class ReservationService {
         if (!Set.of(ReservationStatus.ACTIVE, ReservationStatus.READY_FOR_PICKUP).contains(reservation.getStatus())) {
             throw new IllegalArgumentException("Only active or ready reservations can be marked as no-show");
         }
-        releaseReservedHoldingIfPresent(reservation);
+        releaseReservedHoldingIfPresent(reservation, false);
         reservation.markNoShow(Instant.now());
         applicationEventPublisher.publishEvent(new ReservationNoShowEvent(
                 currentUser.id(),
@@ -178,14 +182,18 @@ public class ReservationService {
         BookHolding holding = request != null && request.holdingId() != null
                 ? inventoryService.resolveBorrowableHolding(reservation.getBook(), request.holdingId())
                 : selectFulfillmentHolding(reservation.getBook(), reservation.getPickupBranch());
-        holding.borrowOne();
-        inventoryService.synchronizeBookInventory(reservation.getBook());
-
         Instant now = Instant.now();
         if (holding.getFormat() == HoldingFormat.DIGITAL
                 || reservation.getPickupBranch() == null
                 || reservation.getPickupBranch().getId().equals(holding.getBranch().getId())) {
-            reservation.markReadyForPickup(holding, now, now.plus(3, ChronoUnit.DAYS));
+            if (holding.getFormat() == HoldingFormat.PHYSICAL) {
+                BookCopy copy = inventoryService.reserveCopyForPickup(holding, reservation.getPickupBranch());
+                reservation.markReadyForPickup(holding, copy, now, now.plus(3, ChronoUnit.DAYS));
+            } else {
+                holding.borrowOne();
+                inventoryService.synchronizeBookInventory(reservation.getBook());
+                reservation.markReadyForPickup(holding, null, now, now.plus(3, ChronoUnit.DAYS));
+            }
             notificationService.notifyUser(
                     reservation.getUser(),
                     "Reservation ready for pickup",
@@ -197,7 +205,9 @@ public class ReservationService {
                     reservation.getPickupBranch(),
                     currentUserService.getCurrentUserEntity());
         } else {
-            reservation.beginTransfer(holding, now);
+            BookCopy copy = inventoryService.startTransfer(holding, reservation.getPickupBranch());
+            BookTransfer transfer = transferService.createInTransitTransfer(holding, copy, reservation.getPickupBranch(), now);
+            reservation.beginTransfer(holding, copy, transfer, now);
             notificationService.notifyUser(
                     reservation.getUser(),
                     "Reservation in transit",
@@ -219,7 +229,22 @@ public class ReservationService {
             throw new IllegalArgumentException("Only in-transit reservations with a reserved holding can be marked ready");
         }
         Instant now = Instant.now();
-        reservation.markReadyForPickup(reservation.getReservedHolding(), now, now.plus(3, ChronoUnit.DAYS));
+        if (reservation.getTransfer() != null && reservation.getReservedCopy() != null) {
+            transferService.markReady(reservation.getTransfer(), now);
+            inventoryService.markCopyReadyForPickup(
+                    reservation.getReservedCopy(),
+                    reservation.getPickupBranch() != null
+                            ? reservation.getPickupBranch()
+                            : reservation.getReservedHolding().getBranch());
+            reservation.markReadyForPickup(
+                    reservation.getReservedHolding(),
+                    reservation.getReservedCopy(),
+                    reservation.getTransfer(),
+                    now,
+                    now.plus(3, ChronoUnit.DAYS));
+        } else {
+            reservation.markReadyForPickup(reservation.getReservedHolding(), null, now, now.plus(3, ChronoUnit.DAYS));
+        }
         notificationService.notifyUser(
                 reservation.getUser(),
                 "Reservation ready for pickup",
@@ -242,7 +267,7 @@ public class ReservationService {
                 .contains(reservation.getStatus())) {
             throw new IllegalArgumentException("Only open reservations can be expired");
         }
-        releaseReservedHoldingIfPresent(reservation);
+        releaseReservedHoldingIfPresent(reservation, true);
         reservation.expire(Instant.now());
         notificationService.notifyUser(
                 reservation.getUser(),
@@ -265,7 +290,7 @@ public class ReservationService {
             throw new IllegalArgumentException("Only ready reservations can be collected");
         }
         if (reservation.getExpiresAt() != null && reservation.getExpiresAt().isBefore(Instant.now())) {
-            releaseReservedHoldingIfPresent(reservation);
+            releaseReservedHoldingIfPresent(reservation, true);
             reservation.expire(Instant.now());
             notificationService.notifyUser(
                     reservation.getUser(),
@@ -277,13 +302,13 @@ public class ReservationService {
         }
 
         Instant borrowedAt = Instant.now();
-        LibraryPolicy policy = policyService.getCurrentPolicyEntity();
-        BorrowTransaction saved = borrowTransactionRepository.save(new BorrowTransaction(
+        BorrowTransaction saved = borrowTransactionRepository.save(createBorrowTransaction(
                 currentUserService.getCurrentUserEntity(),
-                reservation.getBook(),
-                reservation.getReservedHolding(),
-                borrowedAt,
-                borrowedAt.plus(policy.getStandardLoanDays(), ChronoUnit.DAYS)));
+                reservation,
+                borrowedAt));
+        if (reservation.getTransfer() != null && reservation.getTransfer().getStatus() == BookTransferStatus.READY_FOR_PICKUP) {
+            transferService.complete(reservation.getTransfer(), borrowedAt);
+        }
         reservation.fulfill(borrowedAt);
         applicationEventPublisher.publishEvent(new BookBorrowedEvent(
                 currentUser.id(),
@@ -308,7 +333,10 @@ public class ReservationService {
                                 ReservationStatus.READY_FOR_PICKUP))
                 .stream()
                 .findFirst()
-                .ifPresent(reservation -> reservation.fulfill(Instant.now()));
+                .ifPresent(reservation -> {
+                    releaseReservedHoldingIfPresent(reservation, false);
+                    reservation.fulfill(Instant.now());
+                });
     }
 
     public void assertNoReadyReservationBlocksDirectBorrow(Long userId, Long bookId) {
@@ -365,11 +393,44 @@ public class ReservationService {
         return borrowableHoldings.get(0);
     }
 
-    private void releaseReservedHoldingIfPresent(Reservation reservation) {
+    @Transactional
+    void completeReadyTransfer(Reservation reservation, Instant completedAt) {
+        if (reservation.getTransfer() != null && reservation.getTransfer().getStatus() == BookTransferStatus.READY_FOR_PICKUP) {
+            transferService.complete(reservation.getTransfer(), completedAt);
+        }
+    }
+
+    private void releaseReservedHoldingIfPresent(Reservation reservation, boolean expired) {
+        if (reservation.getReservedCopy() != null
+                && Set.of(ReservationStatus.IN_TRANSIT, ReservationStatus.READY_FOR_PICKUP).contains(reservation.getStatus())) {
+            inventoryService.releaseReservedCopy(reservation.getReservedCopy());
+            if (reservation.getTransfer() != null) {
+                if (expired) {
+                    transferService.expire(reservation.getTransfer(), Instant.now());
+                } else {
+                    transferService.cancel(reservation.getTransfer(), Instant.now());
+                }
+            }
+            return;
+        }
         if (reservation.getReservedHolding() != null
                 && Set.of(ReservationStatus.IN_TRANSIT, ReservationStatus.READY_FOR_PICKUP).contains(reservation.getStatus())) {
             reservation.getReservedHolding().returnOne();
             inventoryService.synchronizeBookInventory(reservation.getBook());
         }
+    }
+
+    private BorrowTransaction createBorrowTransaction(AppUser user, Reservation reservation, Instant borrowedAt) {
+        LibraryPolicy policy = policyService.getCurrentPolicyEntity();
+        if (reservation.getReservedCopy() != null) {
+            reservation.getReservedCopy().markBorrowed();
+        }
+        return new BorrowTransaction(
+                user,
+                reservation.getBook(),
+                reservation.getReservedHolding(),
+                reservation.getReservedCopy(),
+                borrowedAt,
+                borrowedAt.plus(policy.getStandardLoanDays(), ChronoUnit.DAYS));
     }
 }

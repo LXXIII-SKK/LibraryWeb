@@ -176,6 +176,7 @@ const holdings = [
     location: { id: 21, code: "A-1", name: "Architecture Shelf", floorLabel: "1", zoneLabel: "A", active: true },
     totalQuantity: 6,
     availableQuantity: 4,
+    trackedCopyCount: 6,
     active: true,
     onlineAccess: false,
   },
@@ -297,10 +298,16 @@ async function fulfillRoute(route: Route) {
   if (pathname === "/api/inventory/holdings") {
     return route.fulfill({ json: holdings });
   }
+  if (pathname === "/api/inventory/copies") {
+    return route.fulfill({ json: [] });
+  }
   if (pathname === "/api/locations") {
     return route.fulfill({ json: locations });
   }
   if (pathname === "/api/notifications") {
+    return route.fulfill({ json: [] });
+  }
+  if (pathname === "/api/transfers") {
     return route.fulfill({ json: [] });
   }
   if (pathname === "/api/books/1/view") {

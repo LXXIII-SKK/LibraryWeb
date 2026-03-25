@@ -1,6 +1,6 @@
 import type { FormEvent } from "react";
 
-import type { Book, BookHolding, LibraryBranch, LibraryLocation } from "../types";
+import type { Book, BookCopy, BookHolding, LibraryBranch, LibraryLocation } from "../types";
 import type { HoldingFormState } from "../view-models";
 
 type InventoryPanelProps = {
@@ -10,6 +10,7 @@ type InventoryPanelProps = {
   branches: LibraryBranch[];
   locations: LibraryLocation[];
   holdings: BookHolding[];
+  copies: BookCopy[];
   onUpdateField: <K extends keyof HoldingFormState>(field: K, value: HoldingFormState[K]) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onReset: () => void;
@@ -23,6 +24,7 @@ export function InventoryPanel({
   branches,
   locations,
   holdings,
+  copies,
   onUpdateField,
   onSubmit,
   onReset,
@@ -139,6 +141,7 @@ export function InventoryPanel({
               <th>Branch</th>
               <th>Location</th>
               <th>Available</th>
+              <th>Tracked copies</th>
               <th>Status</th>
               <th />
             </tr>
@@ -153,6 +156,7 @@ export function InventoryPanel({
                 <td>
                   {holding.availableQuantity}/{holding.totalQuantity}
                 </td>
+                <td>{holding.format === "PHYSICAL" ? holding.trackedCopyCount : "N/A"}</td>
                 <td>{holding.active ? "Active" : "Inactive"}</td>
                 <td className="table-actions">
                   <button className="button-secondary" onClick={() => onStartEdit(holding)}>
@@ -166,6 +170,35 @@ export function InventoryPanel({
       </div>
 
       {holdings.length === 0 ? <p className="empty-state">No inventory holdings are configured in this scope.</p> : null}
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Copy</th>
+              <th>Book</th>
+              <th>Status</th>
+              <th>Current branch</th>
+              <th>Current location</th>
+            </tr>
+          </thead>
+          <tbody>
+            {copies.map((copy) => (
+              <tr key={copy.id}>
+                <td>{copy.barcode}</td>
+                <td>{copy.bookTitle}</td>
+                <td>
+                  <span className={`pill pill-${copy.status.toLowerCase()}`}>{copy.status}</span>
+                </td>
+                <td>{copy.currentBranch?.name ?? "In transit"}</td>
+                <td>{copy.currentLocation?.name ?? "Unassigned"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {copies.length === 0 ? <p className="empty-state">No tracked physical copies are visible in this scope.</p> : null}
     </div>
   );
 }

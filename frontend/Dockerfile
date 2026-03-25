@@ -11,8 +11,8 @@ ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL
 ENV VITE_KEYCLOAK_REALM=$VITE_KEYCLOAK_REALM
 ENV VITE_KEYCLOAK_CLIENT_ID=$VITE_KEYCLOAK_CLIENT_ID
 
-COPY package.json ./
-RUN npm install
+COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm npm install
 
 COPY . .
 RUN npm run build

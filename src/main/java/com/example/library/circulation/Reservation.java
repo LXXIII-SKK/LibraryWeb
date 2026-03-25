@@ -5,6 +5,7 @@ import java.time.Instant;
 import com.example.library.branch.LibraryBranch;
 import com.example.library.catalog.Book;
 import com.example.library.identity.AppUser;
+import com.example.library.inventory.BookCopy;
 import com.example.library.inventory.BookHolding;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -41,6 +42,14 @@ public class Reservation {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "reserved_holding_id")
     private BookHolding reservedHolding;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reserved_copy_id")
+    private BookCopy reservedCopy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "transfer_id")
+    private BookTransfer transfer;
 
     @Column(name = "reserved_at", nullable = false)
     private Instant reservedAt;
@@ -101,6 +110,14 @@ public class Reservation {
         return reservedHolding;
     }
 
+    public BookCopy getReservedCopy() {
+        return reservedCopy;
+    }
+
+    public BookTransfer getTransfer() {
+        return transfer;
+    }
+
     public Instant getTransferRequestedAt() {
         return transferRequestedAt;
     }
@@ -139,8 +156,10 @@ public class Reservation {
         this.updatedAt = updatedAt;
     }
 
-    public void beginTransfer(BookHolding reservedHolding, Instant updatedAt) {
+    public void beginTransfer(BookHolding reservedHolding, BookCopy reservedCopy, BookTransfer transfer, Instant updatedAt) {
         this.reservedHolding = requireHolding(reservedHolding);
+        this.reservedCopy = reservedCopy;
+        this.transfer = transfer;
         this.transferRequestedAt = updatedAt;
         this.readyAt = null;
         this.expiresAt = null;
@@ -148,13 +167,19 @@ public class Reservation {
         this.updatedAt = updatedAt;
     }
 
-    public void markReadyForPickup(BookHolding reservedHolding, Instant readyAt, Instant expiresAt) {
+    public void markReadyForPickup(BookHolding reservedHolding, BookCopy reservedCopy, BookTransfer transfer, Instant readyAt, Instant expiresAt) {
         this.reservedHolding = requireHolding(reservedHolding);
+        this.reservedCopy = reservedCopy;
+        this.transfer = transfer;
         this.transferRequestedAt = this.transferRequestedAt == null ? readyAt : this.transferRequestedAt;
         this.readyAt = readyAt;
         this.expiresAt = expiresAt;
         this.status = ReservationStatus.READY_FOR_PICKUP;
         this.updatedAt = readyAt;
+    }
+
+    public void markReadyForPickup(BookHolding reservedHolding, BookCopy reservedCopy, Instant readyAt, Instant expiresAt) {
+        markReadyForPickup(reservedHolding, reservedCopy, this.transfer, readyAt, expiresAt);
     }
 
     public void expire(Instant updatedAt) {

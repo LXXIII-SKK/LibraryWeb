@@ -2,7 +2,9 @@ import type {
   AccessOptions,
   ActivityLog,
   Book,
+  BookCopy,
   BookHolding,
+  BookTransfer,
   BorrowingExceptionAction,
   Borrowing,
   LibraryBranch,
@@ -229,8 +231,10 @@ export type AdminConsoleProps = {
   disciplineRequestForm: DisciplineRequestFormState;
   books: Book[];
   holdings: BookHolding[];
+  copies: BookCopy[];
   borrowings: Borrowing[];
   reservations: Reservation[];
+  transfers: BookTransfer[];
   fines: Fine[];
   branches: LibraryBranch[];
   locations: LibraryLocation[];

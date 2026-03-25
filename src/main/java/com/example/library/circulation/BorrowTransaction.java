@@ -4,6 +4,7 @@ import java.time.Instant;
 
 import com.example.library.catalog.Book;
 import com.example.library.identity.AppUser;
+import com.example.library.inventory.BookCopy;
 import com.example.library.inventory.BookHolding;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -36,6 +37,10 @@ public class BorrowTransaction {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "holding_id")
     private BookHolding holding;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "copy_id")
+    private BookCopy copy;
 
     @Column(name = "borrowed_at", nullable = false)
     private Instant borrowedAt;
@@ -72,13 +77,18 @@ public class BorrowTransaction {
     }
 
     public BorrowTransaction(AppUser user, Book book, Instant borrowedAt, Instant dueAt) {
-        this(user, book, null, borrowedAt, dueAt);
+        this(user, book, null, null, borrowedAt, dueAt);
     }
 
     public BorrowTransaction(AppUser user, Book book, BookHolding holding, Instant borrowedAt, Instant dueAt) {
+        this(user, book, holding, null, borrowedAt, dueAt);
+    }
+
+    public BorrowTransaction(AppUser user, Book book, BookHolding holding, BookCopy copy, Instant borrowedAt, Instant dueAt) {
         this.user = user;
         this.book = book;
         this.holding = holding;
+        this.copy = copy;
         this.borrowedAt = borrowedAt;
         this.dueAt = dueAt;
         this.status = BorrowStatus.BORROWED;
@@ -98,6 +108,10 @@ public class BorrowTransaction {
 
     public BookHolding getHolding() {
         return holding;
+    }
+
+    public BookCopy getCopy() {
+        return copy;
     }
 
     public Instant getBorrowedAt() {

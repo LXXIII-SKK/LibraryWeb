@@ -1,4 +1,14 @@
 export type HoldingFormat = "PHYSICAL" | "DIGITAL";
+export type BookCopyStatus =
+  | "AVAILABLE"
+  | "UNAVAILABLE"
+  | "RESERVED_FOR_PICKUP"
+  | "IN_TRANSIT"
+  | "BORROWED"
+  | "CLAIMED_RETURNED"
+  | "LOST"
+  | "DAMAGED";
+export type BookTransferStatus = "IN_TRANSIT" | "READY_FOR_PICKUP" | "COMPLETED" | "CANCELLED" | "EXPIRED";
 export type Book = {
   id: number;
   title: string;
@@ -74,8 +84,38 @@ export type BookHolding = {
   location: LocationSummary | null;
   totalQuantity: number;
   availableQuantity: number;
+  trackedCopyCount: number;
   active: boolean;
   onlineAccess: boolean;
+};
+
+export type BookCopy = {
+  id: number;
+  holdingId: number;
+  bookId: number;
+  bookTitle: string;
+  barcode: string;
+  status: BookCopyStatus;
+  currentBranch: BranchSummary | null;
+  currentLocation: LocationSummary | null;
+};
+
+export type BookTransfer = {
+  id: number;
+  copyId: number;
+  copyBarcode: string;
+  bookId: number;
+  bookTitle: string;
+  sourceHoldingId: number;
+  sourceBranch: BranchSummary | null;
+  sourceLocation: LocationSummary | null;
+  destinationBranch: BranchSummary | null;
+  status: BookTransferStatus;
+  requestedAt: string;
+  dispatchedAt: string;
+  readyAt: string | null;
+  completedAt: string | null;
+  closedAt: string | null;
 };
 
 export type Profile = {
@@ -98,6 +138,8 @@ export type Borrowing = {
   bookId: number;
   bookTitle: string;
   holdingId: number | null;
+  copyId: number | null;
+  copyBarcode: string | null;
   holdingFormat: HoldingFormat | null;
   branchName: string | null;
   locationName: string | null;
@@ -124,7 +166,11 @@ export type Reservation = {
   username: string;
   pickupBranch: BranchSummary | null;
   reservedHoldingId: number | null;
+  reservedCopyId: number | null;
   reservedHoldingBranchName: string | null;
+  transferId: number | null;
+  transferStatus: BookTransferStatus | null;
+  transferDestinationBranchName: string | null;
   reservedAt: string;
   transferRequestedAt: string | null;
   readyAt: string | null;
@@ -223,6 +269,7 @@ export type ActivityLog = {
     | "RESERVATION_NO_SHOW"
     | "FINE_WAIVED"
     | "POLICY_UPDATED"
+    | "TRANSFER_UPDATED"
     | "ACCESS_UPDATED"
     | "ACCESS_DISCIPLINE";
   message: string;

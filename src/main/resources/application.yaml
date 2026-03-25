@@ -23,6 +23,8 @@ spring:
 
   flyway:
     enabled: true
+    validate-on-migrate: true
+    clean-disabled: true
 
   servlet:
     multipart:

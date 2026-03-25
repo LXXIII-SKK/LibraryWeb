@@ -14,6 +14,7 @@ import { LocationsPanel } from "./LocationsPanel";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PolicyPanel } from "./PolicyPanel";
 import { ReservationsPanel } from "./ReservationsPanel";
+import { TransfersPanel } from "./TransfersPanel";
 import { UpcomingBooksPanel } from "./UpcomingBooksPanel";
 
 type AdminSection =
@@ -24,6 +25,7 @@ type AdminSection =
   | "notifications"
   | "borrowings"
   | "reservations"
+  | "transfers"
   | "fines"
   | "access"
   | "branches"
@@ -73,8 +75,10 @@ export function AdminConsole({
   disciplineRequestForm,
   books,
   holdings,
+  copies,
   borrowings,
   reservations,
+  transfers,
   fines,
   branches,
   locations,
@@ -181,6 +185,7 @@ export function AdminConsole({
     }
     if (canReadReservations) {
       next.push({ id: "reservations", label: "Reservations", count: reservations.length });
+      next.push({ id: "transfers", label: "Transfers", count: transfers.length });
     }
     if (canReadFines) {
       next.push({ id: "fines", label: "Fines", count: fines.length });
@@ -213,6 +218,7 @@ export function AdminConsole({
     holdings.length,
     locations.length,
     reservations.length,
+    transfers.length,
     unreadNotifications,
     upcomingBooks.length,
     users.length,
@@ -667,6 +673,7 @@ export function AdminConsole({
             branches={branches}
             locations={locations}
             holdings={holdings}
+            copies={copies}
             onUpdateField={onUpdateHoldingField}
             onSubmit={onSubmitHolding}
             onReset={onResetHolding}
@@ -723,6 +730,8 @@ export function AdminConsole({
             onNoShow={onNoShowReservation}
           />
         );
+      case "transfers":
+        return <TransfersPanel transfers={transfers} />;
       case "fines":
         return (
           <FinesPanel

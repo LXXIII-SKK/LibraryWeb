@@ -12,7 +12,11 @@ public record ReservationResponse(
         String username,
         BranchSummaryResponse pickupBranch,
         Long reservedHoldingId,
+        Long reservedCopyId,
         String reservedHoldingBranchName,
+        Long transferId,
+        BookTransferStatus transferStatus,
+        String transferDestinationBranchName,
         Instant reservedAt,
         Instant transferRequestedAt,
         Instant readyAt,
@@ -29,8 +33,14 @@ public record ReservationResponse(
                 reservation.getUser().getUsername(),
                 BranchSummaryResponse.from(reservation.getPickupBranch()),
                 reservation.getReservedHolding() != null ? reservation.getReservedHolding().getId() : null,
+                reservation.getReservedCopy() != null ? reservation.getReservedCopy().getId() : null,
                 reservation.getReservedHolding() != null && reservation.getReservedHolding().getBranch() != null
                         ? reservation.getReservedHolding().getBranch().getName()
+                        : null,
+                reservation.getTransfer() != null ? reservation.getTransfer().getId() : null,
+                reservation.getTransfer() != null ? reservation.getTransfer().getStatus() : null,
+                reservation.getTransfer() != null && reservation.getTransfer().getDestinationBranch() != null
+                        ? reservation.getTransfer().getDestinationBranch().getName()
                         : null,
                 reservation.getReservedAt(),
                 reservation.getTransferRequestedAt(),

@@ -12,7 +12,9 @@ Quick reference for running the Mini Library stack and understanding the seeded 
 
 ## Start The Full Stack
 
-```bash
+```cmd
+copy compose.env.example .env
+notepad .env
 docker compose up -d --build
 ```
 
@@ -207,3 +209,19 @@ Verify frontend, backend, and Keycloak together:
 ```cmd
 scripts\verify-runtime.cmd
 ```
+
+Verify schema version and Flyway history:
+
+```cmd
+scripts\verify-migrations.cmd
+```
+
+Create a database backup:
+
+```cmd
+scripts\backup-db.cmd
+```
+
+Operational runbook:
+
+- `docs/OPERATIONS_RUNBOOK.md`

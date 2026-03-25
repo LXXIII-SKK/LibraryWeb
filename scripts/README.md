@@ -62,3 +62,48 @@ If you are running the Vite frontend locally on `5173` instead of the Docker fro
 ```cmd
 scripts\verify-runtime.cmd vite
 ```
+
+## Migration Verification
+
+Verify that the running PostgreSQL schema matches the latest versioned Flyway script in the repo:
+
+```cmd
+scripts\verify-migrations.cmd
+```
+
+The script reads `.env` first and falls back to `compose.env.example`.
+
+## Database Backup
+
+Write a timestamped SQL dump into `backups\`:
+
+```cmd
+scripts\backup-db.cmd
+```
+
+Choose an explicit output path:
+
+```cmd
+scripts\backup-db.cmd backups\library-before-upgrade.sql
+```
+
+## Database Restore
+
+Restore a SQL dump into the compose PostgreSQL container:
+
+```cmd
+scripts\restore-db.cmd backups\library-before-upgrade.sql
+```
+
+Skip the confirmation prompt:
+
+```cmd
+scripts\restore-db.cmd backups\library-before-upgrade.sql -Force
+```
+
+Recommended follow-up:
+
+```cmd
+scripts\verify-migrations.cmd
+scripts\verify-runtime.cmd
+```

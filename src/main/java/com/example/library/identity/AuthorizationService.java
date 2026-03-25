@@ -75,6 +75,10 @@ public class AuthorizationService {
                 && (currentUser.hasPermission(AppPermission.RESERVATION_MANAGE_BRANCH) || canMutateGlobally(currentUser));
     }
 
+    public boolean canReadTransfers() {
+        return canReadOperationalReservations();
+    }
+
     public boolean canRecordBookView() {
         CurrentUser currentUser = currentUserService.getCurrentUser();
         return isActive(currentUser) && !currentUser.isReadOnlyRole();
